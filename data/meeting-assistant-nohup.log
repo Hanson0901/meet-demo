@@ -1,0 +1,18 @@
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/runpy.py", line 196, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "/home/cgu-csie/meet-demo/meeting_assistant/cli.py", line 17, in <module>
+    if __name__ == "__main__": main()
+  File "/home/cgu-csie/meet-demo/meeting_assistant/cli.py", line 16, in main
+    else: serve(tools,args.host,args.port)
+  File "/home/cgu-csie/meet-demo/meeting_assistant/web.py", line 135, in serve
+    server = ThreadingHTTPServer((host, port), Handler); tools.logger.emit("UI", f"server listening http://{host}:{port}"); server.serve_forever()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 452, in __init__
+    self.server_bind()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 137, in server_bind
+    socketserver.TCPServer.server_bind(self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 466, in server_bind
+    self.socket.bind(self.server_address)
+OSError: [Errno 98] Address already in use

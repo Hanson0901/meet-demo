@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f9fc">
+  <title>會議記憶｜Meeting Assistant</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header class="appbar">
+    <a class="brand" href="/" aria-label="會議記憶首頁">
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5zM4 5.5v15M8 7h8M8 10h8M8 13h5"/></svg></span>
+      <span><strong>會議記憶</strong><small>MEETING ASSISTANT</small></span>
+    </a>
+    <nav class="app-nav" aria-label="主選單">
+      <a class="nav-link active" href="/" aria-current="page"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 9h8M8 13h5"/></svg><span>會議</span></a>
+      <a class="nav-link" href="/evaluate"><svg viewBox="0 0 24 24"><path d="M4 19V5m0 14h16M8 15l3-4 3 2 5-7"/></svg><span>模型評估</span></a>
+      <a class="nav-link" href="/admin"><svg viewBox="0 0 24 24"><path d="M12 3 19 6v5c0 4.5-3 7.5-7 10-4-2.5-7-5.5-7-10V6zM9 12l2 2 4-4"/></svg><span>管理</span></a>
+    </nav>
+    <span id="health" class="connection"><i></i>連線中</span>
+  </header>
+
+  <div class="workspace">
+    <aside class="sidebar">
+      <section class="panel upload-panel">
+        <div class="panel-title"><span class="title-icon"><svg viewBox="0 0 24 24"><path d="M12 16V4m-4 4 4-4 4 4M5 14v5h14v-5"/></svg></span><div><h2>新增會議</h2><p>匯入音訊並建立逐字稿</p></div></div>
+        <form id="upload-form">
+          <label class="dropzone" for="audio">
+            <span class="upload-symbol"><svg viewBox="0 0 24 24"><path d="M12 16V4m-4 4 4-4 4 4M5 14v5h14v-5"/></svg></span>
+            <strong>選擇音訊檔案</strong><small id="file-name">WAV、MP3、M4A 等格式</small>
+          </label>
+          <input id="audio" name="file" type="file" accept="audio/*,.wav,.mp3,.m4a,.flac,.mkv" required>
+          <input id="started-at" name="started_at" type="hidden">
+          <button class="primary-button full-button" type="submit">開始整理</button>
+          <p id="upload-status" class="helper-text">系統會先建立暫存會議名稱，摘要完成後自動命名。</p>
+        </form>
+      </section>
+
+      <section class="panel history-panel">
+        <div class="section-heading"><div><h2>最近會議</h2><p>依建立時間排列</p></div><button id="refresh" class="icon-button" title="重新整理" aria-label="重新整理"><svg viewBox="0 0 24 24"><path d="M20 7v5h-5M4.5 10a7.5 7.5 0 0 1 13-3L20 12M4 17v-5h5m10.5 2a7.5 7.5 0 0 1-13 3L4 12"/></svg></button></div>
+        <div id="meeting-list" class="meeting-list"></div>
+      </section>
+    </aside>
+
+    <main class="main-content">
+      <section class="search-panel" aria-label="RAG 檢索">
+        <span class="search-icon"><svg viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.5 4.5"/></svg></span>
+        <form id="search-form" class="search-form">
+          <input id="search" type="search" placeholder="搜尋會議內容、摘要或待辦事項" aria-label="搜尋會議記憶">
+          <select id="search-type" aria-label="搜尋資料類型"><option value="all">所有記憶</option><option value="content">會議內文</option><option value="summary">會議總結</option><option value="action">待辦事項</option></select>
+          <button type="submit" class="search-button">搜尋</button>
+        </form>
+      </section>
+
+      <section id="empty" class="welcome panel">
+        <span class="welcome-art" aria-hidden="true"><svg viewBox="0 0 96 96"><rect x="16" y="19" width="64" height="58" rx="12"/><path d="M31 39h34M31 49h34M31 59h22M27 12v14M69 12v14"/></svg></span>
+        <p class="overline">MEETING WORKSPACE</p><h1>讓每場會議，都能接續下一步</h1>
+        <p class="welcome-copy">上傳錄音後，查看逐字稿、確認與會者，再整理摘要和待辦。相關會議會依內容檢索並串聯。</p>
+      </section>
+
+      <article id="meeting-view" hidden>
+        <section class="meeting-heading panel">
+          <div class="meeting-heading-copy"><p class="overline">MEETING RECORD</p><h1 id="meeting-title"></h1><div class="meeting-meta"><span id="meeting-date"></span><span id="topic-chip" class="topic-chip" hidden></span></div></div>
+          <div class="heading-actions"><button id="analyze" class="primary-button"><svg viewBox="0 0 24 24"><path d="m12 3 1.9 5.8L20 11l-6.1 2.2L12 19l-2-5.8L4 11l6-2.2zM19 15l1.1 2.1L22 18l-1.9.9L19 21l-1-2.1-2-.9 2-.9z"/></svg><span>產生摘要與追蹤</span></button><button id="export" class="tonal-button"><svg viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M5 17v4h14v-4"/></svg><span>匯出</span></button></div>
+        </section>
+
+        <section id="thread-panel" class="panel thread-panel" hidden><div class="section-heading"><div><p class="overline">MEETING THREAD</p><h2 id="thread-title"></h2></div><span class="thread-count" id="thread-count"></span></div><div id="related-meetings" class="related-list"></div></section>
+
+        <section class="panel speaker-panel"><div class="section-heading"><div><h2>說話人</h2><p>確認人名後會同步顯示於逐字稿</p></div><button id="save-speakers" class="text-button">確認人名</button></div><div id="speaker-list" class="speaker-list"></div><p id="speaker-status" class="helper-text"></p></section>
+
+        <section class="summary-grid">
+          <section class="panel summary-card"><div class="section-heading"><div><p class="overline">OVERVIEW</p><h2>會議摘要</h2></div></div><div id="summary" class="prose"></div></section>
+          <section class="panel action-card"><div class="section-heading"><div><p class="overline">NEXT STEPS</p><h2>待辦事項</h2></div><span id="action-count" class="count-badge"></span></div><div id="actions" class="stack"></div></section>
+        </section>
+
+        <section class="panel decision-panel"><div class="section-heading"><div><p class="overline">DECISIONS</p><h2>會議決議</h2></div></div><div id="decisions" class="decision-list"></div></section>
+
+        <section id="followup-panel" class="panel followup-panel" hidden><div class="section-heading"><div><p class="overline">FOLLOW-UP</p><h2>前次待辦追蹤</h2></div></div><div id="follow-ups" class="stack"></div></section>
+
+        <section class="panel transcript-panel"><div class="section-heading"><div><p class="overline">TRANSCRIPT</p><h2>逐字稿</h2></div><span id="utterance-count" class="count-badge"></span></div><div id="transcript-list" class="transcript-list"></div></section>
+        <details class="panel log-panel"><summary>處理記錄</summary><pre id="logs"></pre></details>
+      </article>
+
+      <section id="search-results" class="search-results" hidden><div class="results-heading"><div><p class="overline">MEMORY SEARCH</p><h2>檢索結果</h2></div><span id="result-count" class="count-badge"></span></div><div id="results" class="results-list"></div></section>
+    </main>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>

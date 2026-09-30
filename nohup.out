@@ -1,0 +1,633 @@
+[UI] 2026-09-26T06:24:44.466+00:00 info server listening http://0.0.0.0:8080
+[EVAL] 2026-09-26T06:25:02.217+00:00 info meeting=66e75aad-7073-455d-ade9-1deba7203533 開始呼叫遠端摘要模型=gpt-6-luna
+[EVAL] 2026-09-26T06:25:16.151+00:00 info meeting=66e75aad-7073-455d-ade9-1deba7203533 遠端評審比較兩份摘要
+----------------------------------------
+Exception occurred during processing of request from ('66.132.224.80', 59698)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('146.19.248.106', 52326)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('146.19.248.106', 58548)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('199.45.155.21', 58988)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('66.132.172.100', 34468)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('45.79.207.110', 45841)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('45.33.109.8', 51364)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('199.45.155.15', 53476)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('167.94.146.59', 24796)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('66.132.195.78', 60634)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('66.132.195.78', 64684)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('146.19.248.106', 47922)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('146.19.248.106', 34328)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('172.104.210.105', 53817)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('172.104.210.105', 53819)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('45.79.207.181', 52548)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('167.94.146.50', 13430)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('93.123.109.204', 9250)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('199.45.154.73', 52172)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('167.172.104.107', 9355)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('72.14.178.148', 56862)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('72.14.178.148', 60950)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('45.79.5.11', 47117)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('45.79.115.59', 57769)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('104.140.148.114', 54924)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('104.140.148.114', 58924)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('104.140.148.54', 50465)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('104.140.148.54', 62180)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('146.19.248.106', 43028)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('146.19.248.106', 34244)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('66.132.172.132', 21232)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('69.164.217.74', 55422)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('66.132.172.181', 7762)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('45.33.109.18', 51901)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('167.94.146.58', 7464)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('199.45.155.43', 33040)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+----------------------------------------
+Exception occurred during processing of request from ('167.94.146.59', 53722)
+Traceback (most recent call last):
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 683, in process_request_thread
+    self.finish_request(request, client_address)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 360, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socketserver.py", line 747, in __init__
+    self.handle()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 433, in handle
+    self.handle_one_request()
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/http/server.py", line 401, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+  File "/home/cgu-csie/miniconda3/envs/py3_10/lib/python3.10/socket.py", line 717, in readinto
+    return self._sock.recv_into(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+[UI] 2026-09-30T15:29:54.083+00:00 info server listening http://0.0.0.0:8080

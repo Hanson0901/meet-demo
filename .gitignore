@@ -1,0 +1,39 @@
+# 忽略 Python 缓存和编译产物
+../**/__pycache__/
+*.py[cod]
+*$py.class
+
+# 忽略指定目录
+outputs/
+uploads/
+offload/
+*.gguf
+# 忽略常见缓存目录
+cache/
+
+# Runtime/generated artifacts (avoid huge binary and noisy outputs)
+output_audio.mkv
+*_audio.mkv
+**/*_audio.mkv
+output*.srt
+**/output*.srt
+output_*cache.json
+output_meeting_summary.txt
+output_actions.txt
+finald_output*.md
+finalk_output*.md
+finalp_output*.md
+**/finald_output*.md
+**/finalk_output*.md
+**/finalp_output*.md
+
+# Ignore txt outputs/logs
+*.txt
+**/*.txt
+temp/
+trash/
+# Temporary wav segments
+tmp_seg_*.wav
+tmp_spk_*.wav
+.cache/
+.vscode/

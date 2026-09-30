@@ -1,0 +1,12 @@
+[project]
+name = "meeting-assistant"
+version = "0.1.0"
+description = "Modular meeting transcription and memory assistant"
+requires-python = ">=3.10"
+
+[project.scripts]
+meeting-assistant = "meeting_assistant.cli:main"
+
+[project.optional-dependencies]
+asr = ["funasr>=1.1.3", "torch>=2.0", "torchaudio>=2.0"]
+llm = ["llama-cpp-python>=0.3.0"]
