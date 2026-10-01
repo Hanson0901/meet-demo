@@ -20,6 +20,9 @@ CREATE TABLE IF NOT EXISTS rag_content (id INTEGER PRIMARY KEY AUTOINCREMENT, to
 CREATE TABLE IF NOT EXISTS rag_summaries (id INTEGER PRIMARY KEY AUTOINCREMENT, topic_key TEXT NOT NULL, meeting_id TEXT NOT NULL, content TEXT NOT NULL, vector_json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS rag_actions (id INTEGER PRIMARY KEY AUTOINCREMENT, topic_key TEXT NOT NULL, meeting_id TEXT NOT NULL, action_id INTEGER, content TEXT NOT NULL, vector_json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS follow_ups (id INTEGER PRIMARY KEY AUTOINCREMENT, meeting_id TEXT NOT NULL, previous_meeting_id TEXT NOT NULL, previous_action_id INTEGER, item TEXT NOT NULL, status TEXT NOT NULL, conclusion TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS analysis_checkpoints (meeting_id TEXT NOT NULL, run_key TEXT NOT NULL, phase TEXT NOT NULL, round_number INTEGER NOT NULL DEFAULT 0, item_key TEXT NOT NULL, input_hash TEXT NOT NULL, result_json TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (meeting_id, run_key, phase, round_number, item_key));
+CREATE INDEX IF NOT EXISTS idx_analysis_checkpoints_meeting ON analysis_checkpoints(meeting_id);
 """
 
 class MeetingDB:
@@ -67,6 +70,102 @@ class MeetingDB:
     def add_log(self, event) -> None:
         self.connection.execute("INSERT INTO logs(meeting_id,timestamp,module,level,message) VALUES(?,?,?,?,?)", (event.meeting_id,event.timestamp,event.module,event.level,event.message)); self.connection.commit()
 
+    def get_setting(self, key: str, default: str | None = None) -> str | None:
+        with self.lock:
+            row = self.connection.execute("SELECT value FROM app_settings WHERE key=?", (key,)).fetchone()
+            return row[0] if row else default
+
+    def set_setting(self, key: str, value: str) -> None:
+        with self.lock:
+            self.connection.execute(
+                "INSERT INTO app_settings(key,value) VALUES(?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (key, value),
+            )
+            self.connection.commit()
+
+    def set_settings(self, values: dict[str, str]) -> None:
+        if not values:
+            return
+        with self.lock:
+            self.connection.executemany(
+                "INSERT INTO app_settings(key,value) VALUES(?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                list(values.items()),
+            )
+            self.connection.commit()
+
+    def get_analysis_checkpoint(
+        self,
+        meeting_id: str,
+        run_key: str,
+        phase: str,
+        round_number: int,
+        item_key: str,
+        input_hash: str,
+    ) -> dict | None:
+        with self.lock:
+            row = self.connection.execute(
+                "SELECT result_json FROM analysis_checkpoints "
+                "WHERE meeting_id=? AND run_key=? AND phase=? AND round_number=? AND item_key=? AND input_hash=?",
+                (meeting_id, run_key, phase, round_number, item_key, input_hash),
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            result = json.loads(row["result_json"])
+        except (TypeError, json.JSONDecodeError):
+            return None
+        return result if isinstance(result, dict) else None
+
+    def save_analysis_checkpoint(
+        self,
+        meeting_id: str,
+        run_key: str,
+        phase: str,
+        round_number: int,
+        item_key: str,
+        input_hash: str,
+        result: dict,
+    ) -> None:
+        with self.lock:
+            self.connection.execute(
+                "INSERT INTO analysis_checkpoints(meeting_id,run_key,phase,round_number,item_key,input_hash,result_json) "
+                "VALUES(?,?,?,?,?,?,?) ON CONFLICT(meeting_id,run_key,phase,round_number,item_key) "
+                "DO UPDATE SET input_hash=excluded.input_hash,result_json=excluded.result_json,updated_at=CURRENT_TIMESTAMP",
+                (
+                    meeting_id,
+                    run_key,
+                    phase,
+                    round_number,
+                    item_key,
+                    input_hash,
+                    json.dumps(result, ensure_ascii=False, separators=(",", ":")),
+                ),
+            )
+            self.connection.commit()
+
+    def retain_analysis_checkpoint_run(self, meeting_id: str, run_key: str) -> None:
+        with self.lock:
+            self.connection.execute(
+                "DELETE FROM analysis_checkpoints WHERE meeting_id=? AND run_key<>?",
+                (meeting_id, run_key),
+            )
+            self.connection.commit()
+
+    def delete_analysis_checkpoints(self, meeting_id: str, run_key: str | None = None) -> None:
+        with self.lock:
+            if run_key is None:
+                self.connection.execute(
+                    "DELETE FROM analysis_checkpoints WHERE meeting_id=?", (meeting_id,)
+                )
+            else:
+                self.connection.execute(
+                    "DELETE FROM analysis_checkpoints WHERE meeting_id=? AND run_key=?",
+                    (meeting_id, run_key),
+                )
+            self.connection.commit()
+
     def transcript(self, meeting_id: str) -> list[dict]:
         return [dict(row) for row in self.connection.execute("SELECT u.*, COALESCE(NULLIF(s.display_name,''), u.speaker_id) AS speaker_name FROM utterances u LEFT JOIN speakers s ON s.meeting_id=u.meeting_id AND s.speaker_id=u.speaker_id WHERE u.meeting_id=? ORDER BY u.start_time", (meeting_id,))]
 
@@ -112,7 +211,7 @@ class MeetingDB:
             exists = self.connection.execute("SELECT 1 FROM meetings WHERE id=?", (meeting_id,)).fetchone()
             if not exists:
                 return False
-            for table in ("rag_content", "rag_summaries", "rag_actions", "speakers", "utterances", "actions", "decisions", "logs", "evaluations"):
+            for table in ("rag_content", "rag_summaries", "rag_actions", "analysis_checkpoints", "speakers", "utterances", "actions", "decisions", "logs", "evaluations"):
                 self.connection.execute(f"DELETE FROM {table} WHERE meeting_id=?", (meeting_id,))
             self.connection.execute("DELETE FROM follow_ups WHERE meeting_id=? OR previous_meeting_id=?", (meeting_id, meeting_id))
             self.connection.execute("DELETE FROM meeting_topics WHERE meeting_id=?", (meeting_id,))
@@ -125,13 +224,13 @@ class MeetingDB:
     def purge(self) -> int:
         with self.lock:
             count = self.connection.execute("SELECT COUNT(*) FROM meetings").fetchone()[0]
-            for table in ("rag_content", "rag_summaries", "rag_actions", "follow_ups", "meeting_topics", "topics", "threads", "speakers", "utterances", "actions", "decisions", "logs", "evaluations", "meetings"):
+            for table in ("rag_content", "rag_summaries", "rag_actions", "analysis_checkpoints", "follow_ups", "meeting_topics", "topics", "threads", "speakers", "utterances", "actions", "decisions", "logs", "evaluations", "meetings"):
                 self.connection.execute(f"DELETE FROM {table}")
             self.connection.commit()
             return count
 
     def counts(self) -> dict[str, int]:
-        return {table: self.connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in ("meetings", "speakers", "utterances", "actions", "decisions", "follow_ups", "logs", "evaluations", "threads", "rag_content", "rag_summaries", "rag_actions")}
+        return {table: self.connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in ("meetings", "speakers", "utterances", "actions", "decisions", "follow_ups", "logs", "evaluations", "threads", "rag_content", "rag_summaries", "rag_actions", "analysis_checkpoints")}
 
     def save_evaluation(self, result: dict) -> int:
         cursor = self.connection.execute("INSERT INTO evaluations(meeting_id,created_at,result_json) VALUES(?,?,?)", (result["meeting_id"], result["created_at"], json.dumps(result, ensure_ascii=False)))

@@ -1,6 +1,7 @@
 from __future__ import annotations
 import uuid
 from datetime import datetime
+from typing import Callable
 from .audio import AudioIngest
 from .asr import FunASRAdapter
 from .db import MeetingDB
@@ -18,7 +19,32 @@ class MeetingTools:
             original_sink(event)
             db.add_log(event)
         logger.sink = persist
-        self.audio, self.asr, self.llm = AudioIngest(logger), FunASRAdapter(logger), LLMOrchestrator(logger)
+        stored_context = db.get_setting("llama_cpp_context")
+        context_tokens = None
+        if stored_context is not None:
+            try:
+                candidate = int(stored_context)
+                context_tokens = LLMOrchestrator._validate_context_tokens(candidate)
+            except (TypeError, ValueError):
+                logger.emit("LLM", "ignoring invalid persisted context setting", level="WARNING")
+        token_settings = {}
+        for key in LLMOrchestrator.TOKEN_SETTING_SPECS:
+            stored_value = db.get_setting(f"llama_cpp_{key}")
+            if stored_value is None:
+                continue
+            try:
+                token_settings[key] = int(stored_value)
+                LLMOrchestrator.validate_token_settings({key: token_settings[key]})
+            except (TypeError, ValueError):
+                token_settings.pop(key, None)
+                logger.emit("LLM", f"ignoring invalid persisted token setting: {key}", level="WARNING")
+        self.audio, self.asr = AudioIngest(logger), FunASRAdapter(logger)
+        self.llm = LLMOrchestrator(
+            logger,
+            context_tokens=context_tokens,
+            token_settings=token_settings,
+            checkpoint_store=db,
+        )
         self.evaluator = MeetingEvaluator(logger)
     def transcribe_meeting(self, audio: str, title: str | None = None, started_at: str | None = None) -> str:
         meeting_id = str(uuid.uuid4())
@@ -33,11 +59,11 @@ class MeetingTools:
             for item in self.asr.transcribe(meeting_id, segment):
                 self.db.save_utterance(item, convert_traditional(item.text)); self.logger.emit("DB", f"utterance saved id={item.utterance_id}", meeting_id=meeting_id)
         return meeting_id
-    def summarize_meeting(self, meeting_id: str):
+    def summarize_meeting(self, meeting_id: str, *, progress: Callable[[str], None] | None = None):
         rows = self.db.transcript(meeting_id)
         query = self.llm.transcript_text(rows)
         related = self.db.related_context(query, meeting_id)
-        result = self.llm.analyze(meeting_id, rows, related)
+        result = self.llm.analyze(meeting_id, rows, related, progress=progress)
         meeting = self.db.meeting(meeting_id) or {}
         generated_title = result.get("title", "").strip()
         has_summary = bool(result.get("summary", "").strip()) and result.get("summary", "").strip() != "- 尚無可分析內容"
@@ -64,6 +90,7 @@ class MeetingTools:
         self.db.save_analysis(meeting_id, result.get("summary", ""), result.get("actions", []), result.get("decisions", []), title=title, meeting_time=meeting_time, follow_ups=result["follow_ups"])
         if finalized:
             self.db.index_rag(meeting_id, title, transcript_chunks(rows), result.get("summary", ""), result.get("actions", []))
+        self.db.delete_analysis_checkpoints(meeting_id)
         result.update({"title": title, "meeting_time": meeting_time, "thread": thread, "related_context": related})
         return result
     def query_meeting_memory(self, query: str, category: str = "all"): return self.db.rag_search(query, category)

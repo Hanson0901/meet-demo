@@ -2,11 +2,13 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 import uuid
 from email import policy
 from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Lock, Thread
 from urllib.parse import parse_qs, urlparse
 from .tools import MeetingTools
 
@@ -38,6 +40,111 @@ def save_upload(body: bytes, content_type: str, upload_root: Path = UPLOAD_ROOT)
 def serve(tools: MeetingTools, host: str = "0.0.0.0", port: int = 8080):
     UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
     admin_token = os.getenv("MEETING_ADMIN_TOKEN", "")
+    analysis_jobs: dict[str, dict] = {}
+    analysis_jobs_lock = Lock()
+    context_job = {
+        "status": "idle",
+        "stage": "尚未調整 context",
+        "context_tokens": tools.llm.context_tokens,
+        "model_reloaded": False,
+        "error": None,
+    }
+
+    def update_analysis_job(meeting_id: str, **changes) -> None:
+        with analysis_jobs_lock:
+            job = analysis_jobs.get(meeting_id)
+            if job is not None:
+                job.update(changes)
+
+    def update_context_job(**changes) -> None:
+        with analysis_jobs_lock:
+            context_job.update(changes)
+
+    def run_context_update(context_tokens: int) -> None:
+        while True:
+            with analysis_jobs_lock:
+                active_analysis = any(
+                    job["status"] in ("queued", "running") for job in analysis_jobs.values()
+                )
+            if not active_analysis:
+                break
+            update_context_job(stage="等待目前的會議摘要完成")
+            time.sleep(0.5)
+
+        update_context_job(status="reloading", stage="正在套用設定並重新載入模型")
+        try:
+            result = tools.llm.set_context_tokens(context_tokens)
+            tools.db.set_setting("llama_cpp_context", str(context_tokens))
+        except Exception as exc:
+            tools.logger.emit("LLM", f"context update failed: {exc}", level="ERROR")
+            update_context_job(status="failed", stage="context 調整失敗", error=str(exc))
+        else:
+            if result["unchanged"]:
+                stage = f"context 維持 {context_tokens}，設定已保存"
+            elif result["model_reloaded"]:
+                stage = f"context 已調整為 {context_tokens}，模型重新載入完成"
+            else:
+                stage = f"context 已調整為 {context_tokens}，模型下次使用時載入"
+            update_context_job(
+                status="completed",
+                stage=stage,
+                context_tokens=context_tokens,
+                model_reloaded=result["model_reloaded"],
+                error=None,
+            )
+
+    def run_analysis(meeting_id: str) -> None:
+        update_analysis_job(meeting_id, status="running", stage="準備摘要")
+        try:
+            tools.summarize_meeting(meeting_id, progress=lambda stage: update_analysis_job(meeting_id, stage=stage))
+        except Exception as exc:
+            tools.logger.emit("LLM", f"llama.cpp request failed: {exc}", meeting_id=meeting_id, level="ERROR")
+            update_analysis_job(meeting_id, status="failed", stage="摘要失敗", error=str(exc))
+        else:
+            update_analysis_job(meeting_id, status="completed", stage="摘要完成", error=None)
+
+    def start_analysis(meeting_id: str) -> tuple[dict, int]:
+        with analysis_jobs_lock:
+            if context_job["status"] in ("queued", "reloading"):
+                return {"error": "正在套用模型 context 設定，請稍後再開始摘要。"}, 409
+            active = next(
+                ((active_id, job) for active_id, job in analysis_jobs.items() if job["status"] in ("queued", "running")),
+                None,
+            )
+            if active:
+                active_id, job = active
+                if active_id == meeting_id:
+                    return {"meeting_id": meeting_id, **job}, 202
+                return {
+                    "error": f"另一場會議正在摘要中（{active_id}），請稍後再試。",
+                    "active_meeting_id": active_id,
+                }, 409
+
+            job = {"status": "queued", "stage": "等待摘要工作", "error": None}
+            analysis_jobs[meeting_id] = job
+            worker = Thread(target=run_analysis, args=(meeting_id,), daemon=True, name=f"summary-{meeting_id[:8]}")
+            worker.start()
+            return {"meeting_id": meeting_id, **job}, 202
+
+    def start_context_update(context_tokens: int) -> tuple[dict, int]:
+        with analysis_jobs_lock:
+            if context_job["status"] in ("queued", "reloading"):
+                return {"error": "另一個 context 調整正在進行，請稍候。"}, 409
+            context_job.update(
+                status="queued",
+                stage="等待套用 context 設定",
+                context_tokens=context_tokens,
+                model_reloaded=False,
+                error=None,
+            )
+            worker = Thread(
+                target=run_context_update,
+                args=(context_tokens,),
+                daemon=True,
+                name="llama-context-update",
+            )
+            worker.start()
+            return {**context_job}, 202
 
     class Handler(BaseHTTPRequestHandler):
         def send_bytes(self, body: bytes, content_type: str, status: int = 200):
@@ -49,6 +156,26 @@ def serve(tools: MeetingTools, host: str = "0.0.0.0", port: int = 8080):
 
         def do_GET(self):
             parsed = urlparse(self.path)
+            status_prefix, status_suffix = "/api/meetings/", "/analysis-status"
+            if parsed.path.startswith(status_prefix) and parsed.path.endswith(status_suffix):
+                meeting_id = parsed.path[len(status_prefix) : -len(status_suffix)]
+                with analysis_jobs_lock:
+                    job = analysis_jobs.get(meeting_id)
+                    state = dict(job) if job else {"status": "idle", "stage": "尚未開始摘要", "error": None}
+                return self.send_json({"meeting_id": meeting_id, **state})
+            if parsed.path == "/api/admin/config":
+                if not self.authorized(): return self.send_json({"error": "需要管理員 token"}, 401)
+                with analysis_jobs_lock:
+                    job = dict(context_job)
+                return self.send_json({
+                    "context_tokens": tools.llm.context_tokens,
+                    "model_loaded": tools.llm.model is not None,
+                    "min_context_tokens": tools.llm.MIN_CONTEXT_TOKENS,
+                    "max_context_tokens": tools.llm.MAX_CONTEXT_TOKENS,
+                    "token_settings": tools.llm.get_token_settings(),
+                    "token_setting_specs": tools.llm.token_settings_schema(),
+                    "job": job,
+                })
             if parsed.path in ("/", "/index.html"): return self.send_bytes((WEB_ROOT / "index.html").read_bytes(), "text/html; charset=utf-8")
             if parsed.path == "/evaluate": return self.send_bytes((WEB_ROOT / "evaluation.html").read_bytes(), "text/html; charset=utf-8")
             if parsed.path == "/admin": return self.send_bytes((WEB_ROOT / "admin.html").read_bytes(), "text/html; charset=utf-8")
@@ -87,11 +214,10 @@ def serve(tools: MeetingTools, host: str = "0.0.0.0", port: int = 8080):
                     return self.send_json({"error": str(exc)}, 502)
             if self.path.startswith("/api/meetings/") and self.path.endswith("/analyze"):
                 meeting_id = self.path[len("/api/meetings/"):-len("/analyze")]
-                try:
-                    return self.send_json(tools.summarize_meeting(meeting_id))
-                except Exception as exc:
-                    tools.logger.emit("LLM", f"llama.cpp request failed: {exc}", meeting_id=meeting_id, level="ERROR")
-                    return self.send_json({"error": str(exc)}, 503)
+                if tools.db.meeting(meeting_id) is None:
+                    return self.send_json({"error": "meeting not found"}, 404)
+                payload, status = start_analysis(meeting_id)
+                return self.send_json(payload, status)
             if self.path == "/api/admin/purge":
                 if not self.authorized(): return self.send_json({"error": "需要管理員 token"}, 401)
                 count = tools.purge_database()
@@ -110,6 +236,41 @@ def serve(tools: MeetingTools, host: str = "0.0.0.0", port: int = 8080):
                 tools.logger.emit("UI", f"request failed: {exc}", level="ERROR"); return self.send_json({"error": "處理失敗，請查看 log"}, 500)
 
         def do_PUT(self):
+            if self.path == "/api/admin/config":
+                if not self.authorized(): return self.send_json({"error": "需要管理員 token"}, 401)
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    payload = json.loads(self.rfile.read(length) or b"{}")
+                except (json.JSONDecodeError, ValueError):
+                    return self.send_json({"error": "設定內容不是有效 JSON"}, 400)
+                if not isinstance(payload, dict):
+                    return self.send_json({"error": "設定內容必須是 JSON 物件"}, 400)
+                context_tokens = payload.get("context_tokens")
+                token_settings = payload.get("token_settings")
+                if context_tokens is not None and token_settings is not None:
+                    return self.send_json({"error": "請分開套用 context 與摘要 token 設定"}, 400)
+                if token_settings is not None:
+                    try:
+                        validated = tools.llm.validate_token_settings(token_settings)
+                    except ValueError as exc:
+                        return self.send_json({"error": str(exc)}, 400)
+                    tools.db.set_settings({
+                        f"llama_cpp_{key}": str(value) for key, value in validated.items()
+                    })
+                    current = tools.llm.update_token_settings(validated)
+                    return self.send_json({
+                        "token_settings": current,
+                        "message": "摘要 token 設定已保存，下一次分析生效；不需重啟服務。",
+                    })
+                if isinstance(context_tokens, bool) or not isinstance(context_tokens, int):
+                    return self.send_json({"error": "context_tokens 必須是整數"}, 400)
+                if not tools.llm.MIN_CONTEXT_TOKENS <= context_tokens <= tools.llm.MAX_CONTEXT_TOKENS:
+                    return self.send_json({
+                        "error": f"context_tokens 必須介於 {tools.llm.MIN_CONTEXT_TOKENS} 到 {tools.llm.MAX_CONTEXT_TOKENS}"
+                    }, 400)
+                result, status = start_context_update(context_tokens)
+                return self.send_json(result, status)
+
             prefix, suffix = "/api/meetings/", "/speakers"
             if not (self.path.startswith(prefix) and self.path.endswith(suffix)): return self.send_json({"error": "not found"}, 404)
             meeting_id = self.path[len(prefix):-len(suffix)]

@@ -1,5 +1,84 @@
 <!doctype html>
-<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>資料管理｜會議記憶</title><link rel="stylesheet" href="/admin.css"></head>
-<body><header class="appbar"><a class="brand" href="/"><span class="brand-mark"><svg viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5zM4 5.5v15M8 7h8M8 10h8M8 13h5"/></svg></span><span><strong>會議記憶</strong><small>MEETING ASSISTANT</small></span></a><nav><a href="/">會議</a><a href="/evaluate">模型評估</a><a class="active" href="/admin">管理</a></nav></header>
-<main><section class="page-intro"><p class="overline">ADMINISTRATION</p><h1>資料管理</h1><p>檢視資料使用量並管理歷史會議記錄。</p></section><section class="security-card"><div class="security-copy"><span class="security-icon"><svg viewBox="0 0 24 24"><path d="M12 3 19 6v5c0 4.5-3 7.5-7 10-4-2.5-7-5.5-7-10V6zM9 12l2 2 4-4"/></svg></span><div><h2>管理員驗證</h2><p>刪除操作會一併清除關聯逐字稿、索引和評估資料。</p></div></div><div class="token-controls"><input id="token" type="password" placeholder="輸入管理員 Token" autocomplete="off"><button id="save-token">儲存 Token</button></div><p id="message" class="status-message">刪除操作無法復原。</p></section>
-<section id="stats" class="stats-grid"></section><section class="records-card"><div class="records-heading"><div><p class="overline">RECORDS</p><h2>歷史會議</h2></div><button id="purge" class="danger-button"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6m4-6v6M6 7l1 14h10l1-14M9 7V4h6v3"/></svg>清除全部資料</button></div><div id="meetings" class="meeting-table"></div></section></main><script src="/admin.js"></script></body></html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>資料管理｜會議記憶</title>
+  <link rel="stylesheet" href="/admin.css?v=3">
+</head>
+<body>
+  <header class="appbar">
+    <a class="brand" href="/">
+      <span class="brand-mark"><svg viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5zM4 5.5v15M8 7h8M8 10h8M8 13h5"/></svg></span>
+      <span><strong>會議記憶</strong><small>MEETING ASSISTANT</small></span>
+    </a>
+    <nav><a href="/">會議</a><a href="/evaluate">模型評估</a><a class="active" href="/admin">管理</a></nav>
+  </header>
+
+  <main>
+    <section class="page-intro">
+      <p class="overline">ADMINISTRATION</p>
+      <h1>資料管理</h1>
+      <p>管理模型執行設定與歷史會議記錄。</p>
+    </section>
+
+    <section class="security-card">
+      <div class="security-copy">
+        <span class="security-icon"><svg viewBox="0 0 24 24"><path d="M12 3 19 6v5c0 4.5-3 7.5-7 10-4-2.5-7-5.5-7-10V6zM9 12l2 2 4-4"/></svg></span>
+        <div><h2>管理員驗證</h2><p>刪除操作會清除關聯會議資料；模型設定會獨立保留。</p></div>
+      </div>
+      <div class="token-controls">
+        <input id="token" type="password" placeholder="輸入管理員 Token" autocomplete="off">
+        <button id="save-token">儲存 Token</button>
+      </div>
+      <p id="message" class="status-message" role="status">刪除操作無法復原。</p>
+    </section>
+
+    <section class="security-card model-card" aria-labelledby="context-heading">
+      <div class="security-copy">
+        <span class="security-icon"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16M8 4v6m8-1v6m-5-1v6"/></svg></span>
+        <div><h2 id="context-heading">本地模型 Context</h2><p>調整 llama.cpp 可使用的上下文 token 數。</p></div>
+      </div>
+      <div class="context-controls">
+        <label for="context-tokens">Context 上限</label>
+        <div class="context-input-group">
+          <input id="context-tokens" type="number" min="8192" max="16384" step="512" value="16384" inputmode="numeric">
+          <span>tokens</span>
+        </div>
+        <button id="apply-context">套用設定</button>
+      </div>
+      <p class="context-help">可調範圍為 8,192–16,384；目前測試的實用上限為 16,384。套用時會重新載入已載入的模型；若摘要正在執行，設定會等摘要完成後套用。Web 服務不需重啟。</p>
+      <p id="context-status" class="status-message" role="status" aria-live="polite">讀取模型設定中…</p>
+    </section>
+
+    <section class="security-card model-card" aria-labelledby="token-settings-heading">
+      <div class="security-copy">
+        <span class="security-icon"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 9h8M8 12h5M8 15h8"/></svg></span>
+        <div><h2 id="token-settings-heading">摘要分段與 Token 預算</h2><p>調整逐段整理、分層合併及最終摘要的輸入／輸出上限。</p></div>
+      </div>
+      <div class="token-settings-grid">
+        <label class="token-setting" for="direct-max-tokens"><span>直接摘要判斷門檻</span><small>短逐字稿低於此值時嘗試一次摘要</small><input id="direct-max-tokens" type="number" min="256" max="8192" step="1" inputmode="numeric"></label>
+        <label class="token-setting" for="chunk-tokens"><span>每段逐字稿輸入目標</span><small>長逐字稿切段大小</small><input id="chunk-tokens" type="number" min="256" max="8192" step="1" inputmode="numeric"></label>
+        <label class="token-setting" for="map-max-tokens"><span>每段整理輸出上限</span><small>每段事實、決議與待辦的輸出預算</small><input id="map-max-tokens" type="number" min="512" max="8192" step="1" inputmode="numeric"></label>
+        <label class="token-setting" for="reduce-input-tokens"><span>每批合併輸入目標</span><small>較小的批次可降低合併輸出被截斷的機率</small><input id="reduce-input-tokens" type="number" min="512" max="8192" step="1" inputmode="numeric"></label>
+        <label class="token-setting" for="reduce-max-tokens"><span>每批合併輸出上限</span><small>合併保留完整事實清單的輸出預算</small><input id="reduce-max-tokens" type="number" min="512" max="8192" step="1" inputmode="numeric"></label>
+        <label class="token-setting" for="final-max-tokens"><span>最終摘要輸出上限</span><small>主題、摘要、決議與待辦的輸出預算</small><input id="final-max-tokens" type="number" min="512" max="8192" step="1" inputmode="numeric"></label>
+      </div>
+      <div class="token-settings-actions"><button id="apply-token-settings">儲存摘要設定</button></div>
+      <p class="context-help">設定保存於資料庫，下一次摘要時生效，無須重啟 Web 服務。服務中斷後重新開始同一場摘要，系統會沿用已完成的逐段與合併檢查點；成功完成後會清除檢查點。</p>
+      <p id="token-settings-status" class="status-message" role="status" aria-live="polite">讀取摘要設定中…</p>
+    </section>
+
+    <section id="stats" class="stats-grid"></section>
+
+    <section class="records-card">
+      <div class="records-heading">
+        <div><p class="overline">RECORDS</p><h2>歷史會議</h2></div>
+        <button id="purge" class="danger-button"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6m4-6v6M6 7l1 14h10l1-14M9 7V4h6v3"/></svg>清除全部資料</button>
+      </div>
+      <div id="meetings" class="meeting-table"></div>
+    </section>
+  </main>
+  <script src="/admin.js?v=3"></script>
+</body>
+</html>

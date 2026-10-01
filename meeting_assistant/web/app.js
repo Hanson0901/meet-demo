@@ -120,10 +120,23 @@ $('#save-speakers').onclick = async () => {
 
 $('#analyze').onclick = async () => {
   if (!currentMeetingId) return;
+  const meetingId = currentMeetingId;
   const button = $('#analyze');
   button.disabled = true;
-  button.querySelector('span').textContent = '正在整理主題與待辦…';
-  try { await api(`/api/meetings/${currentMeetingId}/analyze`, { method: 'POST' }); await loadMeeting(currentMeetingId); }
+  button.querySelector('span').textContent = '排隊等待摘要…';
+  try {
+    await api(`/api/meetings/${encodeURIComponent(meetingId)}/analyze`, { method: 'POST' });
+    while (true) {
+      const job = await api(`/api/meetings/${encodeURIComponent(meetingId)}/analysis-status`);
+      if (job.status === 'completed') break;
+      if (job.status === 'failed') throw new Error(job.error || '摘要生成失敗');
+      if (job.status === 'idle') throw new Error('找不到摘要工作狀態，服務可能已重啟；請重新整理頁面後再試。');
+      button.querySelector('span').textContent = job.stage || '分段摘要進行中…';
+      await new Promise((resolve) => window.setTimeout(resolve, 1500));
+    }
+    if (currentMeetingId === meetingId) await loadMeeting(meetingId);
+    else await loadMeetings();
+  }
   catch (error) { window.alert(error.message); }
   finally { button.disabled = false; button.querySelector('span').textContent = '產生摘要與追蹤'; }
 };
