@@ -3,6 +3,7 @@ name = "meeting-assistant"
 version = "0.1.0"
 description = "Modular meeting transcription and memory assistant"
 requires-python = ">=3.10"
+dependencies = ["opencc-python-reimplemented>=0.1.7"]
 
 [project.scripts]
 meeting-assistant = "meeting_assistant.cli:main"

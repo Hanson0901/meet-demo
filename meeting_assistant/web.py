@@ -41,6 +41,10 @@ def serve(tools: MeetingTools, host: str = "0.0.0.0", port: int = 8080):
     UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
     admin_token = os.getenv("MEETING_ADMIN_TOKEN", "")
     analysis_jobs: dict[str, dict] = {}
+<<<<<<< Updated upstream
+=======
+    speaker_suggestion_jobs: dict[str, dict] = {}
+>>>>>>> Stashed changes
     analysis_jobs_lock = Lock()
     context_job = {
         "status": "idle",
@@ -66,9 +70,18 @@ def serve(tools: MeetingTools, host: str = "0.0.0.0", port: int = 8080):
                 active_analysis = any(
                     job["status"] in ("queued", "running") for job in analysis_jobs.values()
                 )
+<<<<<<< Updated upstream
             if not active_analysis:
                 break
             update_context_job(stage="等待目前的會議摘要完成")
+=======
+                active_speaker_suggestion = any(
+                    job["status"] in ("queued", "running") for job in speaker_suggestion_jobs.values()
+                )
+            if not active_analysis and not active_speaker_suggestion:
+                break
+            update_context_job(stage="等待目前的模型工作完成")
+>>>>>>> Stashed changes
             time.sleep(0.5)
 
         update_context_job(status="reloading", stage="正在套用設定並重新載入模型")
@@ -103,10 +116,71 @@ def serve(tools: MeetingTools, host: str = "0.0.0.0", port: int = 8080):
         else:
             update_analysis_job(meeting_id, status="completed", stage="摘要完成", error=None)
 
+<<<<<<< Updated upstream
+=======
+    def update_speaker_suggestion_job(meeting_id: str, **changes) -> None:
+        with analysis_jobs_lock:
+            job = speaker_suggestion_jobs.get(meeting_id)
+            if job is not None:
+                job.update(changes)
+
+    def run_speaker_suggestions(meeting_id: str) -> None:
+        update_speaker_suggestion_job(meeting_id, status="running", stage="本地模型正在分析說話者線索")
+        try:
+            result = tools.suggest_speaker_names(meeting_id)
+        except Exception as exc:
+            tools.logger.emit("ASR", f"speaker name suggestion failed: {exc}", meeting_id=meeting_id, level="ERROR")
+            update_speaker_suggestion_job(meeting_id, status="failed", stage="姓名推測失敗", error=str(exc))
+        else:
+            update_speaker_suggestion_job(
+                meeting_id, status="completed", stage="姓名候選已產生", error=None, result=result
+            )
+
+    def start_speaker_suggestions(meeting_id: str) -> tuple[dict, int]:
+        with analysis_jobs_lock:
+            if context_job["status"] in ("queued", "reloading"):
+                return {"error": "正在套用模型 context 設定，請稍後再試。"}, 409
+            active_analysis = next(
+                ((active_id, job) for active_id, job in analysis_jobs.items() if job["status"] in ("queued", "running")),
+                None,
+            )
+            if active_analysis:
+                return {"error": "本地摘要正在使用模型，請完成後再推測姓名。"}, 409
+            active_suggestion = next(
+                ((active_id, job) for active_id, job in speaker_suggestion_jobs.items() if job["status"] in ("queued", "running")),
+                None,
+            )
+            if active_suggestion:
+                active_id, job = active_suggestion
+                if active_id == meeting_id:
+                    return {"meeting_id": meeting_id, **job}, 202
+                return {"error": "另一場會議正在進行姓名推測，請稍後再試。"}, 409
+
+            job = {"status": "queued", "stage": "等待本地模型", "error": None}
+            speaker_suggestion_jobs[meeting_id] = job
+            worker = Thread(
+                target=run_speaker_suggestions,
+                args=(meeting_id,),
+                daemon=True,
+                name=f"speaker-names-{meeting_id[:8]}",
+            )
+            worker.start()
+            return {"meeting_id": meeting_id, **job}, 202
+
+>>>>>>> Stashed changes
     def start_analysis(meeting_id: str) -> tuple[dict, int]:
         with analysis_jobs_lock:
             if context_job["status"] in ("queued", "reloading"):
                 return {"error": "正在套用模型 context 設定，請稍後再開始摘要。"}, 409
+<<<<<<< Updated upstream
+=======
+            active_speaker_suggestion = next(
+                ((active_id, job) for active_id, job in speaker_suggestion_jobs.items() if job["status"] in ("queued", "running")),
+                None,
+            )
+            if active_speaker_suggestion:
+                return {"error": "本地姓名推測正在使用模型，請稍後再開始摘要。"}, 409
+>>>>>>> Stashed changes
             active = next(
                 ((active_id, job) for active_id, job in analysis_jobs.items() if job["status"] in ("queued", "running")),
                 None,
@@ -156,6 +230,16 @@ def serve(tools: MeetingTools, host: str = "0.0.0.0", port: int = 8080):
 
         def do_GET(self):
             parsed = urlparse(self.path)
+<<<<<<< Updated upstream
+=======
+            speaker_status_prefix, speaker_status_suffix = "/api/meetings/", "/speaker-suggestions-status"
+            if parsed.path.startswith(speaker_status_prefix) and parsed.path.endswith(speaker_status_suffix):
+                meeting_id = parsed.path[len(speaker_status_prefix):-len(speaker_status_suffix)]
+                with analysis_jobs_lock:
+                    job = speaker_suggestion_jobs.get(meeting_id)
+                    state = dict(job) if job else {"status": "idle", "stage": "尚未推測姓名", "error": None}
+                return self.send_json({"meeting_id": meeting_id, **state})
+>>>>>>> Stashed changes
             status_prefix, status_suffix = "/api/meetings/", "/analysis-status"
             if parsed.path.startswith(status_prefix) and parsed.path.endswith(status_suffix):
                 meeting_id = parsed.path[len(status_prefix) : -len(status_suffix)]
@@ -212,6 +296,13 @@ def serve(tools: MeetingTools, host: str = "0.0.0.0", port: int = 8080):
                     meeting_id = payload.get("meeting_id", "") if "payload" in locals() else ""
                     tools.logger.emit("EVAL", f"evaluation failed: {exc}", meeting_id=meeting_id or None, level="ERROR")
                     return self.send_json({"error": str(exc)}, 502)
+            speaker_suggestions_suffix = "/speaker-suggestions"
+            if self.path.startswith("/api/meetings/") and self.path.endswith(speaker_suggestions_suffix):
+                meeting_id = self.path[len("/api/meetings/"):-len(speaker_suggestions_suffix)]
+                if tools.db.meeting(meeting_id) is None:
+                    return self.send_json({"error": "meeting not found"}, 404)
+                payload, status = start_speaker_suggestions(meeting_id)
+                return self.send_json(payload, status)
             if self.path.startswith("/api/meetings/") and self.path.endswith("/analyze"):
                 meeting_id = self.path[len("/api/meetings/"):-len("/analyze")]
                 if tools.db.meeting(meeting_id) is None:

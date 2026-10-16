@@ -16,7 +16,7 @@ async function loadMeetings() {
   $('#meeting-list').innerHTML = meetings.length ? meetings.map((meeting) => `
     <button class="meeting-item ${meeting.id === currentMeetingId ? 'selected' : ''}" data-id="${escapeHtml(meeting.id)}">
       <span class="meeting-item-icon"><svg viewBox="0 0 24 24"><path d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5"/></svg></span>
-      <span class="meeting-item-copy"><strong>${escapeHtml(meeting.title)}</strong><small>${escapeHtml(formatDate(meeting.meeting_time || meeting.created_at))}</small></span>
+      <span class="meeting-item-copy"><strong title="${escapeHtml(meeting.title)}">${escapeHtml(meeting.title)}</strong><small>${escapeHtml(formatDate(meeting.meeting_time || meeting.created_at))}</small></span>
       <svg class="chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg>
     </button>`).join('') : '<p class="empty-list">還沒有會議記錄</p>';
   document.querySelectorAll('.meeting-item').forEach((button) => { button.onclick = () => loadMeeting(button.dataset.id); });
@@ -24,7 +24,31 @@ async function loadMeetings() {
 
 function renderSpeakers(speakers) {
   $('#speaker-list').innerHTML = speakers.length ? speakers.map((speaker) => `
-    <label class="speaker-edit"><span class="speaker-id">${escapeHtml(speaker.speaker_id)}</span><input data-speaker="${escapeHtml(speaker.speaker_id)}" value="${escapeHtml(speaker.display_name || '')}" placeholder="輸入姓名"></label>`).join('') : '<p class="empty-list">沒有辨識到說話人</p>';
+    <div class="speaker-card"><label class="speaker-edit"><span class="speaker-id">${escapeHtml(speaker.speaker_id)}</span><input data-speaker="${escapeHtml(speaker.speaker_id)}" value="${escapeHtml(speaker.display_name || speaker.suggested_name || '')}" placeholder="輸入或確認姓名"></label><small class="speaker-hint" title="${escapeHtml(speaker.suggestion_evidence || '')}">${speakerHint(speaker)}</small></div>`).join('') : '<p class="empty-list">沒有辨識到說話人</p>';
+}
+
+function speakerHint(speaker) {
+  if (speaker.name_source === 'voiceprint' && speaker.display_name) {
+    const score = Number.isFinite(Number(speaker.match_score)) ? ` · 相似度 ${(Number(speaker.match_score) * 100).toFixed(0)}%` : '';
+    return `已套用過往確認的聲紋${score}`;
+  }
+  if (speaker.name_source === 'confirmed') return speaker.has_voiceprint ? '姓名已確認；聲紋已保存在本機' : '姓名已確認';
+  const labels = {
+    self_introduction: '逐字稿自我介紹候選，請核對',
+    addressed_by_name: '依對話稱呼推測，請核對',
+    local_llm: '本地模型候選，請核對',
+    voiceprint_candidate: '相似聲紋候選未達自動套用門檻，請核對',
+  };
+  if (speaker.suggested_name) {
+    const source = labels[speaker.suggestion_source] || '姓名候選，請核對';
+    const value = speaker.suggestion_source === 'voiceprint_candidate'
+      ? Number(speaker.match_score) : Number(speaker.suggestion_confidence);
+    const metric = speaker.suggestion_source === 'voiceprint_candidate' ? '相似度' : '信心';
+    const score = Number.isFinite(value) && value > 0 ? ` · ${metric} ${(value * 100).toFixed(0)}%` : '';
+    return `${source}${score}`;
+  }
+  if (speaker.has_voiceprint) return '已有聲紋樣本，姓名尚未確認';
+  return '尚無可比對聲紋或姓名候選；請手動確認';
 }
 
 function renderTranscript(rows) {
@@ -65,6 +89,7 @@ function renderFollowUps(followUps) {
 }
 
 async function loadMeeting(meetingId) {
+  const previousMeetingId = currentMeetingId;
   const data = await api(`/api/meetings/${encodeURIComponent(meetingId)}`);
   currentMeetingId = meetingId;
   $('#empty').hidden = true;
@@ -76,6 +101,7 @@ async function loadMeeting(meetingId) {
   $('#topic-chip').textContent = data.topic?.display_name || '';
   $('#summary').textContent = data.meeting.summary || '摘要尚未產生';
   renderSpeakers(data.speakers || []);
+  if (previousMeetingId !== meetingId) $('#speaker-status').textContent = '';
   renderTranscript(data.transcript || []);
   renderActions(data.actions || []);
   renderDecisions(data.decisions || []);
@@ -116,6 +142,37 @@ $('#save-speakers').onclick = async () => {
     await loadMeeting(currentMeetingId);
   } catch (error) { $('#speaker-status').textContent = error.message; }
   finally { button.disabled = false; }
+};
+
+$('#suggest-speakers').onclick = async () => {
+  if (!currentMeetingId) return;
+  const meetingId = currentMeetingId;
+  const button = $('#suggest-speakers');
+  button.disabled = true;
+  $('#speaker-status').textContent = '本地模型正在尋找自我介紹與稱呼線索；此操作不會送到遠端服務。';
+  try {
+    await api(`/api/meetings/${encodeURIComponent(meetingId)}/speaker-suggestions`, { method: 'POST' });
+    let job;
+    while (true) {
+      job = await api(`/api/meetings/${encodeURIComponent(meetingId)}/speaker-suggestions-status`);
+      if (job.status === 'completed') break;
+      if (job.status === 'failed') throw new Error(job.error || '本地模型推測失敗');
+      if (job.status === 'idle') throw new Error('找不到推測工作狀態，請重新整理後再試。');
+      if (currentMeetingId === meetingId) $('#speaker-status').textContent = job.stage || '本地模型分析中…';
+      await new Promise((resolve) => window.setTimeout(resolve, 1000));
+    }
+    if (currentMeetingId !== meetingId) return;
+    const data = job.result || {};
+    renderSpeakers(data.speakers || []);
+    const count = (data.suggestions || []).length;
+    $('#speaker-status').textContent = count
+      ? `找到 ${count} 個姓名候選；請核對輸入欄後按「確認姓名」，才會保存。`
+      : '沒有足夠明確的姓名線索；請手動輸入，模型不會強行猜測。';
+  } catch (error) {
+    if (currentMeetingId === meetingId) $('#speaker-status').textContent = `姓名推測失敗：${error.message}`;
+  } finally {
+    button.disabled = false;
+  }
 };
 
 $('#analyze').onclick = async () => {

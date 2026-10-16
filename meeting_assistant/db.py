@@ -1,13 +1,16 @@
 from __future__ import annotations
-import json, sqlite3
+import json, sqlite3, uuid
+from datetime import datetime
 from threading import RLock
 from pathlib import Path
 from .models import Utterance
 from .rag import embed, similarity, transcript_chunks
+from .speaker_identity import cosine_similarity, normalize_embedding
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meetings (id TEXT PRIMARY KEY, title TEXT NOT NULL, created_at TEXT NOT NULL, meeting_time TEXT DEFAULT '', summary TEXT DEFAULT '');
 CREATE TABLE IF NOT EXISTS speakers (meeting_id TEXT NOT NULL, speaker_id TEXT NOT NULL, display_name TEXT, PRIMARY KEY (meeting_id, speaker_id));
+CREATE TABLE IF NOT EXISTS speaker_profiles (profile_id TEXT PRIMARY KEY, display_name TEXT NOT NULL, embedding_json TEXT NOT NULL, embedding_model TEXT NOT NULL, sample_count INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS utterances (meeting_id TEXT NOT NULL, utterance_id TEXT PRIMARY KEY, speaker_id TEXT NOT NULL, start_time REAL NOT NULL, end_time REAL NOT NULL, text TEXT NOT NULL, normalized_text TEXT NOT NULL, confidence REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS actions (id INTEGER PRIMARY KEY AUTOINCREMENT, meeting_id TEXT NOT NULL, item TEXT NOT NULL, owner TEXT, due_date TEXT);
 CREATE TABLE IF NOT EXISTS decisions (id INTEGER PRIMARY KEY AUTOINCREMENT, meeting_id TEXT NOT NULL, decision TEXT NOT NULL, context TEXT DEFAULT '');
@@ -37,6 +40,24 @@ class MeetingDB:
         if "meeting_time" not in columns:
             self.connection.execute("ALTER TABLE meetings ADD COLUMN meeting_time TEXT DEFAULT ''")
             self.connection.execute("UPDATE meetings SET meeting_time=created_at WHERE meeting_time IS NULL OR meeting_time=''")
+        speaker_columns = {row[1] for row in self.connection.execute("PRAGMA table_info(speakers)")}
+        speaker_migrations = {
+            "embedding_json": "TEXT",
+            "embedding_model": "TEXT NOT NULL DEFAULT ''",
+            "profile_id": "TEXT",
+            "candidate_profile_id": "TEXT",
+            "profile_enrolled": "INTEGER NOT NULL DEFAULT 0",
+            "match_score": "REAL",
+            "name_source": "TEXT NOT NULL DEFAULT ''",
+            "suggested_name": "TEXT NOT NULL DEFAULT ''",
+            "suggestion_source": "TEXT NOT NULL DEFAULT ''",
+            "suggestion_evidence": "TEXT NOT NULL DEFAULT ''",
+            "suggestion_confidence": "REAL",
+        }
+        for column, definition in speaker_migrations.items():
+            if column not in speaker_columns:
+                self.connection.execute(f"ALTER TABLE speakers ADD COLUMN {column} {definition}")
+        self.connection.execute("CREATE INDEX IF NOT EXISTS idx_speakers_profile_id ON speakers(profile_id)")
         self.connection.commit()
         self.backfill_rag_indexes()
 
@@ -184,12 +205,197 @@ class MeetingDB:
         needle = f"%{query}%"; return [dict(r) for r in self.connection.execute("SELECT u.*, COALESCE(NULLIF(s.display_name,''), u.speaker_id) AS speaker_name FROM utterances u LEFT JOIN speakers s ON s.meeting_id=u.meeting_id AND s.speaker_id=u.speaker_id WHERE u.normalized_text LIKE ? OR s.display_name LIKE ? ORDER BY u.start_time", (needle, needle))]
 
     def speakers(self, meeting_id: str) -> list[dict]:
-        return [dict(row) for row in self.connection.execute("SELECT meeting_id, speaker_id, COALESCE(display_name,'') AS display_name FROM speakers WHERE meeting_id=? ORDER BY speaker_id", (meeting_id,))]
+        return [dict(row) for row in self.connection.execute(
+            "SELECT meeting_id,speaker_id,COALESCE(display_name,'') AS display_name,"
+            "profile_id,match_score,name_source,suggested_name,suggestion_source,suggestion_evidence,suggestion_confidence,"
+            "CASE WHEN embedding_json IS NOT NULL AND embedding_json<>'' THEN 1 ELSE 0 END AS has_voiceprint "
+            "FROM speakers WHERE meeting_id=? ORDER BY speaker_id", (meeting_id,)
+        )]
+
+    @staticmethod
+    def _timestamp_now() -> str:
+        return datetime.now().astimezone().isoformat(timespec="seconds")
+
+    def match_speaker_embedding(
+        self,
+        meeting_id: str,
+        speaker_id: str,
+        embedding: list[float],
+        *,
+        embedding_model: str = "cam++",
+        threshold: float = 0.74,
+        ambiguity_margin: float = 0.06,
+    ) -> dict:
+        """Persist a meeting vector and apply a previously confirmed identity if unambiguous."""
+        vector = normalize_embedding(embedding)
+        if vector is None:
+            return {"matched": False, "score": None, "display_name": ""}
+        if not 0.0 <= threshold <= 1.0:
+            raise ValueError("聲紋比對門檻必須介於 0 與 1")
+        vector_json = json.dumps(vector, separators=(",", ":"))
+        with self.lock:
+            self.connection.execute(
+                "INSERT OR IGNORE INTO speakers(meeting_id,speaker_id) VALUES(?,?)",
+                (meeting_id, speaker_id),
+            )
+            profiles = self.connection.execute(
+                "SELECT profile_id,display_name,embedding_json,sample_count FROM speaker_profiles "
+                "WHERE embedding_model=?", (embedding_model,),
+            ).fetchall()
+            scored = []
+            for profile in profiles:
+                try:
+                    profile_vector = json.loads(profile["embedding_json"])
+                except (TypeError, json.JSONDecodeError):
+                    continue
+                score = cosine_similarity(vector, profile_vector)
+                if score >= 0:
+                    scored.append((score, profile))
+            scored.sort(key=lambda item: item[0], reverse=True)
+            best_score, best_profile = scored[0] if scored else (None, None)
+            second_score = scored[1][0] if len(scored) > 1 else -1.0
+            unambiguous = best_profile is not None and best_score - second_score >= ambiguity_margin
+            matched = bool(best_profile is not None and best_score >= threshold and unambiguous)
+            current = self.connection.execute(
+                "SELECT display_name,name_source FROM speakers WHERE meeting_id=? AND speaker_id=?",
+                (meeting_id, speaker_id),
+            ).fetchone()
+            current_name = (current["display_name"] or "").strip() if current else ""
+            candidate_name = ""
+            suggestion_source = ""
+            suggestion_evidence = ""
+            profile_id = None
+            candidate_profile_id = None
+            display_name = current_name
+            name_source = current["name_source"] or "" if current else ""
+            if matched:
+                profile_id = best_profile["profile_id"]
+                if not current_name:
+                    display_name = best_profile["display_name"]
+                    name_source = "voiceprint"
+            elif best_profile is not None and unambiguous and best_score >= threshold - 0.10:
+                candidate_profile_id = best_profile["profile_id"]
+                candidate_name = best_profile["display_name"]
+                suggestion_source = "voiceprint_candidate"
+                suggestion_evidence = f"相似度 {best_score:.0%}，尚未達自動套用門檻 {threshold:.0%}"
+
+            self.connection.execute(
+                "UPDATE speakers SET embedding_json=?,embedding_model=?,profile_id=?,candidate_profile_id=?,match_score=?,"
+                "display_name=?,name_source=?,suggested_name=?,suggestion_source=?,suggestion_evidence=? "
+                "WHERE meeting_id=? AND speaker_id=?",
+                (
+                    vector_json, embedding_model, profile_id, candidate_profile_id, best_score, display_name or None,
+                    name_source, candidate_name, suggestion_source, suggestion_evidence,
+                    meeting_id, speaker_id,
+                ),
+            )
+            self.connection.commit()
+            return {
+                "matched": matched,
+                "display_name": display_name,
+                "score": best_score,
+                "candidate_name": candidate_name,
+                "profile_id": profile_id,
+            }
+
+    def save_speaker_suggestions(self, meeting_id: str, suggestions: dict[str, dict]) -> None:
+        with self.lock:
+            for speaker_id, suggestion in suggestions.items():
+                if not isinstance(suggestion, dict):
+                    continue
+                name = str(suggestion.get("name", "")).strip()[:80]
+                if not name:
+                    continue
+                self.connection.execute(
+                    "UPDATE speakers SET suggested_name=?,suggestion_source=?,suggestion_evidence=?,suggestion_confidence=? "
+                    "WHERE meeting_id=? AND speaker_id=? AND COALESCE(display_name,'')=''",
+                    (
+                        name, str(suggestion.get("source", "text_context"))[:40],
+                        str(suggestion.get("evidence", ""))[:500],
+                        float(suggestion.get("confidence", 0.0)), meeting_id, speaker_id,
+                    ),
+                )
+            self.connection.commit()
 
     def update_speakers(self, meeting_id: str, mapping: dict[str, str]) -> None:
+        if not isinstance(mapping, dict):
+            raise ValueError("speakers 必須是物件")
+        cleaned_mapping = {}
+        for speaker_id, display_name in mapping.items():
+            if not isinstance(display_name, str):
+                raise ValueError("說話者姓名必須是文字")
+            cleaned_mapping[str(speaker_id)] = display_name.strip()[:80]
         with self.lock:
-            for speaker_id, display_name in mapping.items():
-                self.connection.execute("UPDATE speakers SET display_name=? WHERE meeting_id=? AND speaker_id=?", (display_name.strip(), meeting_id, speaker_id))
+            for speaker_id, display_name in cleaned_mapping.items():
+                row = self.connection.execute(
+                    "SELECT embedding_json,embedding_model,profile_id,candidate_profile_id,profile_enrolled FROM speakers "
+                    "WHERE meeting_id=? AND speaker_id=?", (meeting_id, speaker_id),
+                ).fetchone()
+                if row is None:
+                    continue
+
+                profile_id = row["profile_id"] or row["candidate_profile_id"]
+                enrolled = int(row["profile_enrolled"] or 0)
+                vector = None
+                if row["embedding_json"]:
+                    try:
+                        vector = normalize_embedding(json.loads(row["embedding_json"]))
+                    except (TypeError, json.JSONDecodeError):
+                        vector = None
+
+                if display_name and vector is not None:
+                    profile = self.connection.execute(
+                        "SELECT * FROM speaker_profiles WHERE profile_id=?", (profile_id,)
+                    ).fetchone() if profile_id else None
+                    if profile and display_name == profile["display_name"]:
+                        if not enrolled:
+                            try:
+                                old_vector = normalize_embedding(json.loads(profile["embedding_json"]))
+                            except (TypeError, json.JSONDecodeError):
+                                old_vector = None
+                            if old_vector is not None and len(old_vector) == len(vector):
+                                count = max(1, int(profile["sample_count"] or 1))
+                                combined = normalize_embedding(
+                                    [old * count + new for old, new in zip(old_vector, vector)]
+                                ) or vector
+                                self.connection.execute(
+                                    "UPDATE speaker_profiles SET embedding_json=?,sample_count=?,updated_at=? WHERE profile_id=?",
+                                    (json.dumps(combined, separators=(",", ":")), count + 1, self._timestamp_now(), profile_id),
+                                )
+                            self.connection.execute(
+                                "UPDATE speakers SET profile_enrolled=1 WHERE meeting_id=? AND speaker_id=?",
+                                (meeting_id, speaker_id),
+                            )
+                    else:
+                        # A user correcting an automatic match creates a separate
+                        # identity instead of renaming the previously confirmed profile.
+                        profile_id = str(uuid.uuid4())
+                        now = self._timestamp_now()
+                        self.connection.execute(
+                            "INSERT INTO speaker_profiles(profile_id,display_name,embedding_json,embedding_model,sample_count,created_at,updated_at) "
+                            "VALUES(?,?,?,?,1,?,?)",
+                            (profile_id, display_name, json.dumps(vector, separators=(",", ":")), row["embedding_model"] or "cam++", now, now),
+                        )
+                        self.connection.execute(
+                            "UPDATE speakers SET profile_enrolled=1 WHERE meeting_id=? AND speaker_id=?",
+                            (meeting_id, speaker_id),
+                        )
+                elif display_name and profile_id:
+                    profile = self.connection.execute(
+                        "SELECT display_name FROM speaker_profiles WHERE profile_id=?", (profile_id,)
+                    ).fetchone()
+                    if profile and profile["display_name"] != display_name:
+                        profile_id = None
+
+                self.connection.execute(
+                    "UPDATE speakers SET display_name=?,profile_id=?,candidate_profile_id=NULL,name_source=?,suggested_name='',"
+                    "suggestion_source='',suggestion_evidence='',suggestion_confidence=NULL WHERE meeting_id=? AND speaker_id=?",
+                    (display_name or None, profile_id, "confirmed" if display_name else "", meeting_id, speaker_id),
+                )
+            self.connection.execute(
+                "DELETE FROM speaker_profiles WHERE NOT EXISTS "
+                "(SELECT 1 FROM speakers WHERE speakers.profile_id=speaker_profiles.profile_id)"
+            )
             self.connection.commit()
 
     def export(self, meeting_id: str) -> dict:
@@ -213,6 +419,10 @@ class MeetingDB:
                 return False
             for table in ("rag_content", "rag_summaries", "rag_actions", "analysis_checkpoints", "speakers", "utterances", "actions", "decisions", "logs", "evaluations"):
                 self.connection.execute(f"DELETE FROM {table} WHERE meeting_id=?", (meeting_id,))
+            self.connection.execute(
+                "DELETE FROM speaker_profiles WHERE NOT EXISTS "
+                "(SELECT 1 FROM speakers WHERE speakers.profile_id=speaker_profiles.profile_id)"
+            )
             self.connection.execute("DELETE FROM follow_ups WHERE meeting_id=? OR previous_meeting_id=?", (meeting_id, meeting_id))
             self.connection.execute("DELETE FROM meeting_topics WHERE meeting_id=?", (meeting_id,))
             self.connection.execute("DELETE FROM meetings WHERE id=?", (meeting_id,))
@@ -224,13 +434,21 @@ class MeetingDB:
     def purge(self) -> int:
         with self.lock:
             count = self.connection.execute("SELECT COUNT(*) FROM meetings").fetchone()[0]
+<<<<<<< Updated upstream
             for table in ("rag_content", "rag_summaries", "rag_actions", "analysis_checkpoints", "follow_ups", "meeting_topics", "topics", "threads", "speakers", "utterances", "actions", "decisions", "logs", "evaluations", "meetings"):
+=======
+            for table in ("rag_content", "rag_summaries", "rag_actions", "analysis_checkpoints", "follow_ups", "meeting_topics", "topics", "threads", "speakers", "speaker_profiles", "utterances", "actions", "decisions", "logs", "evaluations", "meetings"):
+>>>>>>> Stashed changes
                 self.connection.execute(f"DELETE FROM {table}")
             self.connection.commit()
             return count
 
     def counts(self) -> dict[str, int]:
+<<<<<<< Updated upstream
         return {table: self.connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in ("meetings", "speakers", "utterances", "actions", "decisions", "follow_ups", "logs", "evaluations", "threads", "rag_content", "rag_summaries", "rag_actions", "analysis_checkpoints")}
+=======
+        return {table: self.connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in ("meetings", "speakers", "speaker_profiles", "utterances", "actions", "decisions", "follow_ups", "logs", "evaluations", "threads", "rag_content", "rag_summaries", "rag_actions", "analysis_checkpoints")}
+>>>>>>> Stashed changes
 
     def save_evaluation(self, result: dict) -> int:
         cursor = self.connection.execute("INSERT INTO evaluations(meeting_id,created_at,result_json) VALUES(?,?,?)", (result["meeting_id"], result["created_at"], json.dumps(result, ensure_ascii=False)))

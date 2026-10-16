@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f7f9fc">
   <title>會議記憶｜Meeting Assistant</title>
-  <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/app.css?v=3">
 </head>
 <body>
   <header class="appbar">
@@ -67,7 +67,7 @@
 
         <section id="thread-panel" class="panel thread-panel" hidden><div class="section-heading"><div><p class="overline">MEETING THREAD</p><h2 id="thread-title"></h2></div><span class="thread-count" id="thread-count"></span></div><div id="related-meetings" class="related-list"></div></section>
 
-        <section class="panel speaker-panel"><div class="section-heading"><div><h2>說話人</h2><p>確認人名後會同步顯示於逐字稿</p></div><button id="save-speakers" class="text-button">確認人名</button></div><div id="speaker-list" class="speaker-list"></div><p id="speaker-status" class="helper-text"></p></section>
+        <section class="panel speaker-panel"><div class="section-heading"><div><h2>說話人</h2><p>辨識候選可編輯；確認姓名後會同步到逐字稿並保存聲紋</p></div><div class="speaker-actions"><button id="suggest-speakers" class="text-button">本地模型推測姓名</button><button id="save-speakers" class="text-button">確認姓名</button></div></div><div id="speaker-list" class="speaker-list"></div><p class="speaker-privacy">聲紋特徵只保存在本機資料庫；姓名建議須人工確認，不會自動登記。</p><p id="speaker-status" class="helper-text" role="status"></p></section>
 
         <section class="summary-grid">
           <section class="panel summary-card"><div class="section-heading"><div><p class="overline">OVERVIEW</p><h2>會議摘要</h2></div></div><div id="summary" class="prose"></div></section>
@@ -85,6 +85,6 @@
       <section id="search-results" class="search-results" hidden><div class="results-heading"><div><p class="overline">MEMORY SEARCH</p><h2>檢索結果</h2></div><span id="result-count" class="count-badge"></span></div><div id="results" class="results-list"></div></section>
     </main>
   </div>
-  <script src="/app.js"></script>
+  <script src="/app.js?v=3"></script>
 </body>
 </html>

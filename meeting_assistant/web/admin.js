@@ -13,7 +13,11 @@ const api = async (url, options = {}) => {
 };
 const escapeHtml = (value = '') => String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char]));
 const labels = {
+<<<<<<< Updated upstream
   meetings: '會議記錄', speakers: '說話人', utterances: '逐字稿段落', actions: '待辦事項',
+=======
+  meetings: '會議記錄', speakers: '會議說話人', speaker_profiles: '已確認聲紋', utterances: '逐字稿段落', actions: '待辦事項',
+>>>>>>> Stashed changes
   decisions: '會議決議', follow_ups: '前次待辦追蹤', logs: '處理記錄', evaluations: '模型評估',
   threads: '會議串', rag_content: '內文向量', rag_summaries: '摘要向量', rag_actions: '待辦向量',
   analysis_checkpoints: '摘要恢復檢查點',

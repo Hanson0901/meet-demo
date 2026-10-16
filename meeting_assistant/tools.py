@@ -10,6 +10,7 @@ from .normalize import convert_traditional
 from .orchestrator import LLMOrchestrator
 from .evaluation import MeetingEvaluator
 from .rag import transcript_chunks
+from .speaker_identity import suggest_names_from_transcript, voiceprint_match_threshold
 
 class MeetingTools:
     def __init__(self, db: MeetingDB, logger: EventLogger):
@@ -58,6 +59,28 @@ class MeetingTools:
         for segment in self.audio.segments(audio):
             for item in self.asr.transcribe(meeting_id, segment):
                 self.db.save_utterance(item, convert_traditional(item.text)); self.logger.emit("DB", f"utterance saved id={item.utterance_id}", meeting_id=meeting_id)
+        for speaker_id, embedding in self.asr.speaker_embeddings(audio).items():
+            match = self.db.match_speaker_embedding(
+                meeting_id,
+                speaker_id,
+                embedding,
+                embedding_model=self.asr.speaker_model_name,
+                threshold=voiceprint_match_threshold(),
+            )
+            if match["matched"]:
+                self.logger.emit(
+                    "ASR",
+                    f"CAM++ 聲紋匹配 speaker={speaker_id} score={match['score']:.3f} name={match['display_name']}",
+                    meeting_id=meeting_id,
+                )
+            elif match.get("score") is not None:
+                self.logger.emit(
+                    "ASR",
+                    f"CAM++ 聲紋候選 speaker={speaker_id} score={match['score']:.3f}，等待確認",
+                    meeting_id=meeting_id,
+                )
+        text_suggestions = suggest_names_from_transcript(self.db.transcript(meeting_id))
+        self.db.save_speaker_suggestions(meeting_id, text_suggestions)
         return meeting_id
     def summarize_meeting(self, meeting_id: str, *, progress: Callable[[str], None] | None = None):
         rows = self.db.transcript(meeting_id)
@@ -100,7 +123,27 @@ class MeetingTools:
     def list_meetings(self): return self.db.meetings()
     def meeting_logs(self, meeting_id: str | None = None): return self.db.logs(meeting_id)
     def speakers(self, meeting_id: str): return self.db.speakers(meeting_id)
-    def update_speakers(self, meeting_id: str, mapping: dict[str, str]): return self.db.update_speakers(meeting_id, mapping)
+    def update_speakers(self, meeting_id: str, mapping: dict[str, str]):
+        self.db.update_speakers(meeting_id, mapping)
+        meeting = self.db.meeting(meeting_id) or {}
+        title = meeting.get("title", "")
+        summary = meeting.get("summary", "")
+        if summary.strip() and title and not title.startswith("整理中"):
+            actions = [
+                {"item": row["item"], "owner": row["owner"], "due_date": row["due_date"]}
+                for row in self.db.connection.execute(
+                    "SELECT item,owner,due_date FROM actions WHERE meeting_id=? ORDER BY id", (meeting_id,)
+                )
+            ]
+            self.db.index_rag(meeting_id, title, transcript_chunks(self.db.transcript(meeting_id)), summary, actions)
+    def suggest_speaker_names(self, meeting_id: str):
+        rows = self.db.transcript(meeting_id)
+        suggestions = self.llm.suggest_speaker_names(meeting_id, rows)
+        self.db.save_speaker_suggestions(
+            meeting_id,
+            {item["speaker_id"]: item for item in suggestions},
+        )
+        return {"suggestions": suggestions, "speakers": self.db.speakers(meeting_id)}
     def evaluate_meeting(self, meeting_id: str):
         rows = self.db.transcript(meeting_id)
         related = self.db.related_context(self.llm.transcript_text(rows), meeting_id)
