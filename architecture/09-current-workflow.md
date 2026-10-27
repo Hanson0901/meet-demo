@@ -33,8 +33,8 @@ flowchart TD
 ## 會議建立與語音辨識
 
 1. 使用者選擇音訊檔並按「開始整理」。瀏覽器記錄當下時間為 ISO `started_at`，以 multipart 表單送到 `POST /api/transcribe`。
-2. 後端將音訊存至 `data/uploads/`，建立 UUID 會議記錄。初始標題為「整理中 · YYYY-MM-DD HH:mm」；`created_at` 與 `meeting_time` 先使用這次開始時間。
-3. `AudioIngest` 將音訊切成片段，FunASR adapter 辨識逐字稿與說話人；辨識文字及繁體化文字一起保存至 SQLite。
+2. 後端將音訊存至 `data/uploads/`，建立 UUID 會議記錄。初始標題為「整理中 · YYYY-MM-DD HH:mm」；`created_at` 與 `meeting_time` 先使用這次開始時間。HTTP 請求在音檔寫入並排入背景工作後立即回應，不等待模型載入。
+3. `AudioIngest` 將音訊切成片段，FunASR adapter 在背景辨識逐字稿與說話人；辨識文字及繁體化文字一起保存至 SQLite。網頁輪詢 `/api/meetings/{id}/transcription-status` 顯示模型載入、辨識進度與錯誤，辨識完成前不能啟動姓名推測或摘要。
 4. 網頁顯示逐字稿與說話人。使用者可編輯姓名，按「確認人名」呼叫 `PUT /api/meetings/{meeting_id}/speakers`；逐字稿顯示時會以確認後的姓名取代 speaker ID。
 
 語音辨識與 LLM 分成兩個操作：上傳完成只建立逐字稿，不會自動開始 llama.cpp 分析。
@@ -81,6 +81,7 @@ RAG 資料目前存放於同一個 SQLite 資料庫的三張表中，並非三�
 | --- | --- | --- |
 | 首頁與會議列表 | `/`、`/api/meetings` | GET |
 | 上傳音訊與辨識 | `/api/transcribe` | POST |
+| 查詢語音辨識工作狀態 | `/api/meetings/{id}/transcription-status` | GET |
 | 確認說話人姓名 | `/api/meetings/{id}/speakers` | PUT |
 | 啟動背景摘要與追蹤 | `/api/meetings/{id}/analyze` | POST |
 | 查詢摘要工作狀態 | `/api/meetings/{id}/analysis-status` | GET |

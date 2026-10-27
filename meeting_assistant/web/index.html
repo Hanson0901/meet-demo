@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f7f9fc">
   <title>會議記憶｜Meeting Assistant</title>
-  <link rel="stylesheet" href="/app.css?v=3">
+  <link rel="stylesheet" href="/app.css?v=5">
 </head>
 <body>
   <header class="appbar">
@@ -33,7 +33,7 @@
           <input id="audio" name="file" type="file" accept="audio/*,.wav,.mp3,.m4a,.flac,.mkv" required>
           <input id="started-at" name="started_at" type="hidden">
           <button class="primary-button full-button" type="submit">開始整理</button>
-          <p id="upload-status" class="helper-text">系統會先建立暫存會議名稱，摘要完成後自動命名。</p>
+          <p id="upload-status" class="helper-text">上傳後會在背景執行語音辨識；系統會先建立暫存會議名稱，摘要完成後自動命名。</p>
         </form>
       </section>
 
@@ -65,6 +65,35 @@
           <div class="heading-actions"><button id="analyze" class="primary-button"><svg viewBox="0 0 24 24"><path d="m12 3 1.9 5.8L20 11l-6.1 2.2L12 19l-2-5.8L4 11l6-2.2zM19 15l1.1 2.1L22 18l-1.9.9L19 21l-1-2.1-2-.9 2-.9z"/></svg><span>產生摘要與追蹤</span></button><button id="export" class="tonal-button"><svg viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M5 17v4h14v-4"/></svg><span>匯出</span></button></div>
         </section>
 
+        <section id="process-panel" class="panel process-panel" hidden>
+          <div class="section-heading">
+            <div>
+              <p class="overline">LIVE PROCESS</p>
+              <h2>執行進度</h2>
+              <p id="process-stage">等待工作狀態</p>
+            </div>
+            <span id="process-status" class="process-status"></span>
+          </div>
+
+          <div class="process-meta">
+            <span>開始：<strong id="process-started">—</strong></span>
+            <span>結束：<strong id="process-finished">—</strong></span>
+            <span>耗時：<strong id="process-elapsed">—</strong></span>
+          </div>
+
+          <div id="process-steps" class="process-steps"></div>
+
+          <details class="model-output-panel" open>
+            <summary>模型即時輸出 <span id="model-output-meta"></span></summary>
+            <pre id="model-output">等待模型輸出…</pre>
+          </details>
+
+          <details class="live-log-panel" open>
+            <summary>即時 Log</summary>
+            <pre id="live-logs">等待處理記錄…</pre>
+          </details>
+        </section>
+
         <section id="thread-panel" class="panel thread-panel" hidden><div class="section-heading"><div><p class="overline">MEETING THREAD</p><h2 id="thread-title"></h2></div><span class="thread-count" id="thread-count"></span></div><div id="related-meetings" class="related-list"></div></section>
 
         <section class="panel speaker-panel"><div class="section-heading"><div><h2>說話人</h2><p>辨識候選可編輯；確認姓名後會同步到逐字稿並保存聲紋</p></div><div class="speaker-actions"><button id="suggest-speakers" class="text-button">本地模型推測姓名</button><button id="save-speakers" class="text-button">確認姓名</button></div></div><div id="speaker-list" class="speaker-list"></div><p class="speaker-privacy">聲紋特徵只保存在本機資料庫；姓名建議須人工確認，不會自動登記。</p><p id="speaker-status" class="helper-text" role="status"></p></section>
@@ -85,6 +114,6 @@
       <section id="search-results" class="search-results" hidden><div class="results-heading"><div><p class="overline">MEMORY SEARCH</p><h2>檢索結果</h2></div><span id="result-count" class="count-badge"></span></div><div id="results" class="results-list"></div></section>
     </main>
   </div>
-  <script src="/app.js?v=3"></script>
+  <script src="/app.js?v=6"></script>
 </body>
 </html>

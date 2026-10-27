@@ -74,12 +74,8 @@ main { max-width: 1120px; margin: 40px auto; padding: 0 24px 60px; }
 .danger-button svg { width: 16px; height: 16px; }
 .meeting-table { display: grid; }
 .meeting-row { display: grid; grid-template-columns: minmax(0, 1fr) 190px 72px; align-items: center; gap: 12px; padding: 13px 2px; border-top: 1px solid #edf0f4; }
-<<<<<<< Updated upstream
-.meeting-title { overflow-wrap: anywhere; font-size: 12px; font-weight: 600; }
-=======
 .meeting-row > div { min-width: 0; }
 .meeting-title { display: block; max-width: 100%; overflow-wrap: anywhere; font-size: 12px; font-weight: 600; }
->>>>>>> Stashed changes
 .meeting-id, .meeting-date { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
 .meeting-date { margin: 0; }
 .delete-button { justify-self: end; padding: 7px 11px; border: 0; border-radius: 18px; color: #b3261e; background: #fceeee; font: inherit; font-size: 10px; font-weight: 600; cursor: pointer; }

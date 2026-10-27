@@ -5,6 +5,8 @@ import hashlib
 import json
 import os
 import re
+import time
+from datetime import datetime, timezone
 from threading import RLock
 from typing import Callable, Mapping, Protocol
 from pathlib import Path
@@ -289,9 +291,13 @@ class LLMOrchestrator:
             for row in rows
         )
 
-<<<<<<< Updated upstream
-=======
-    def suggest_speaker_names(self, meeting_id: str, rows: list[dict]) -> list[dict]:
+    def suggest_speaker_names(
+        self,
+        meeting_id: str,
+        rows: list[dict],
+        *,
+        model_event: Callable[[dict], None] | None = None,
+    ) -> list[dict]:
         """Use the configured local llama.cpp model to suggest, never auto-confirm, names."""
         by_speaker: dict[str, list[dict]] = {}
         for row in rows:
@@ -324,7 +330,13 @@ class LLMOrchestrator:
 待確認 ID：{json.dumps(speaker_ids, ensure_ascii=False)}
 逐字稿片段：
 {transcript_sample}"""
-        result = self._request_json(prompt, meeting_id, "說話者姓名推測", max_tokens=768)
+        result = self._request_json(
+            prompt,
+            meeting_id,
+            "說話者姓名推測",
+            max_tokens=768,
+            model_event=model_event,
+        )
         suggestions = []
         known_ids = set(speaker_ids)
         for candidate in result.get("speakers", []):
@@ -353,7 +365,6 @@ class LLMOrchestrator:
             })
         return suggestions
 
->>>>>>> Stashed changes
     @staticmethod
     def _analysis_requirements() -> str:
         return """你是繁體中文會議秘書。分析逐字稿及相關舊會議，只輸出合法 JSON，不要 Markdown。
@@ -422,34 +433,143 @@ JSON 格式：{"title":"主題","meeting_time":null,"thread_name":"","related_me
     def _prompt_fits(self, prompt: str, output_tokens: int) -> bool:
         return self._token_count(prompt) + output_tokens + self.CONTEXT_MARGIN_TOKENS <= self.context_tokens
 
-    def _request_json(self, prompt: str, meeting_id: str, stage: str, max_tokens: int) -> dict:
+    def _request_json(
+        self,
+        prompt: str,
+        meeting_id: str,
+        stage: str,
+        max_tokens: int,
+        *,
+        model_event: Callable[[dict], None] | None = None,
+    ) -> dict:
         prompt_tokens = self._token_count(prompt)
         if prompt_tokens + max_tokens + self.CONTEXT_MARGIN_TOKENS > self.context_tokens:
             raise RuntimeError(
                 f"{stage} 超出模型上下文預算（輸入約 {prompt_tokens} tokens，"
                 f"上下文 {self.context_tokens}）；請降低該階段的輸入目標或輸出上限。"
             )
+
+        started_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        started_monotonic = time.monotonic()
+
+        def notify(event: dict) -> None:
+            if model_event is None:
+                return
+            try:
+                model_event({
+                    "stage": stage,
+                    "timestamp": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+                    **event,
+                })
+            except Exception as exc:
+                self.logger.emit(
+                    "LLM",
+                    f"model output observer failed: {exc}",
+                    meeting_id=meeting_id,
+                    level="WARNING",
+                )
+
         self.logger.emit(
             "LLM",
-            f"{stage} input_tokens={prompt_tokens} output_limit_tokens={max_tokens} context_tokens={self.context_tokens}",
+            f"{stage} started input_tokens={prompt_tokens} output_limit_tokens={max_tokens} context_tokens={self.context_tokens}",
             meeting_id=meeting_id,
         )
-        response = self._load().create_chat_completion(
-            messages=[{"role": "system", "content": "你只輸出合法 JSON。"}, {"role": "user", "content": prompt}],
-            temperature=0.1,
-            max_tokens=max_tokens,
-            response_format={"type": "json_object"},
-        )
-        choice = response["choices"][0]
-        if choice.get("finish_reason") == "length":
-            raise OutputTokenLimitError(
-                f"{stage} 輸出達到 token 上限，為避免保存不完整內容已中止；"
-                "請調低該階段輸入目標或提高輸出上限。"
-            )
+        notify({
+            "type": "start",
+            "started_at": started_at,
+            "input_tokens": prompt_tokens,
+            "output_limit_tokens": max_tokens,
+        })
+
+        output_parts: list[str] = []
+        finish_reason = None
         try:
-            return self._parse_object(choice["message"]["content"])
-        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-            raise RuntimeError(f"{stage} 沒有產生完整有效的 JSON；為避免遺漏，本次摘要未保存。") from exc
+            response = self._load().create_chat_completion(
+                messages=[{"role": "system", "content": "你只輸出合法 JSON。"}, {"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=max_tokens,
+                response_format={"type": "json_object"},
+                stream=True,
+            )
+
+            if isinstance(response, dict):
+                choices = response.get("choices", [])
+                choice = choices[0] if choices else {}
+                message = choice.get("message", {}) or {}
+                content = message.get("content") or choice.get("text") or ""
+                if content:
+                    content = str(content)
+                    output_parts.append(content)
+                    notify({"type": "token", "text": content})
+                finish_reason = choice.get("finish_reason")
+            else:
+                for chunk in response:
+                    choices = chunk.get("choices", []) if isinstance(chunk, dict) else []
+                    choice = choices[0] if choices else {}
+                    delta = choice.get("delta", {}) or {}
+                    content = delta.get("content") or choice.get("text") or ""
+                    if content:
+                        content = str(content)
+                        output_parts.append(content)
+                        notify({"type": "token", "text": content})
+                    if choice.get("finish_reason"):
+                        finish_reason = choice["finish_reason"]
+
+            content = "".join(output_parts)
+            if finish_reason == "length":
+                raise OutputTokenLimitError(
+                    f"{stage} 輸出達到 token 上限，為避免保存不完整內容已中止；"
+                    "請調低該階段輸入目標或提高輸出上限。"
+                )
+            try:
+                result = self._parse_object(content)
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+                raise RuntimeError(f"{stage} 沒有產生完整有效的 JSON；為避免遺漏，本次摘要未保存。") from exc
+        except OutputTokenLimitError as exc:
+            elapsed = round(time.monotonic() - started_monotonic, 3)
+            notify({
+                "type": "error",
+                "error": str(exc),
+                "finish_reason": "length",
+                "output_chars": len("".join(output_parts)),
+                "elapsed_seconds": elapsed,
+            })
+            self.logger.emit(
+                "LLM",
+                f"{stage} failed elapsed_seconds={elapsed} output_chars={len(''.join(output_parts))} reason=token_limit",
+                meeting_id=meeting_id,
+                level="WARNING",
+            )
+            raise
+        except Exception as exc:
+            elapsed = round(time.monotonic() - started_monotonic, 3)
+            notify({
+                "type": "error",
+                "error": str(exc),
+                "output_chars": len("".join(output_parts)),
+                "elapsed_seconds": elapsed,
+            })
+            self.logger.emit(
+                "LLM",
+                f"{stage} failed elapsed_seconds={elapsed} output_chars={len(''.join(output_parts))} error={exc}",
+                meeting_id=meeting_id,
+                level="ERROR",
+            )
+            raise
+
+        elapsed = round(time.monotonic() - started_monotonic, 3)
+        notify({
+            "type": "complete",
+            "finish_reason": finish_reason or "stop",
+            "output_chars": len(content),
+            "elapsed_seconds": elapsed,
+        })
+        self.logger.emit(
+            "LLM",
+            f"{stage} completed elapsed_seconds={elapsed} output_chars={len(content)} finish_reason={finish_reason or 'stop'}",
+            meeting_id=meeting_id,
+        )
+        return result
 
     def _split_long_utterance(self, row: dict, max_output_tokens: int, target_tokens: int) -> list[str]:
         speaker = row.get("speaker_name", row["speaker_id"])
@@ -653,6 +773,7 @@ JSON 格式：{"title":"主題","meeting_time":null,"thread_name":"","related_me
         reduce_input_tokens: int,
         run_key: str,
         progress: Callable[[str], None] | None = None,
+        model_event: Callable[[dict], None] | None = None,
     ) -> tuple[list[dict], str]:
         input_limit = min(reduce_input_tokens, max(512, self.context_tokens // 3))
 
@@ -679,7 +800,13 @@ JSON 格式：{"title":"主題","meeting_time":null,"thread_name":"","related_me
                 for segment in note.get("source_segments", [])
             })
             try:
-                result = self._request_json(prompt, meeting_id, stage, reduce_tokens)
+                result = self._request_json(
+                    prompt,
+                    meeting_id,
+                    stage,
+                    reduce_tokens,
+                    model_event=model_event,
+                )
             except OutputTokenLimitError as exc:
                 if len(group) > 1:
                     self.logger.emit(
@@ -750,9 +877,16 @@ JSON 格式：{"title":"主題","meeting_time":null,"thread_name":"","related_me
         related_context: list[dict] | None = None,
         *,
         progress: Callable[[str], None] | None = None,
+        model_event: Callable[[dict], None] | None = None,
     ) -> dict:
         with self._model_lock:
-            return self._analyze(meeting_id, rows, related_context, progress=progress)
+            return self._analyze(
+                meeting_id,
+                rows,
+                related_context,
+                progress=progress,
+                model_event=model_event,
+            )
 
     def _analyze(
         self,
@@ -761,6 +895,7 @@ JSON 格式：{"title":"主題","meeting_time":null,"thread_name":"","related_me
         related_context: list[dict] | None = None,
         *,
         progress: Callable[[str], None] | None = None,
+        model_event: Callable[[dict], None] | None = None,
     ) -> dict:
         transcript = self.transcript_text(rows)
         if not transcript.strip():
@@ -783,7 +918,13 @@ JSON 格式：{"title":"主題","meeting_time":null,"thread_name":"","related_me
         if self._token_count(direct_prompt) <= direct_limit and self._prompt_fits(direct_prompt, final_tokens):
             if progress:
                 progress("分析逐字稿")
-            result = self._request_json(direct_prompt, meeting_id, "直接摘要", final_tokens)
+            result = self._request_json(
+                direct_prompt,
+                meeting_id,
+                "直接摘要",
+                final_tokens,
+                model_event=model_event,
+            )
             self.logger.emit("LLM", "llama.cpp analysis completed mode=direct", meeting_id=meeting_id)
             return self._normalize_result(result)
 
@@ -821,6 +962,7 @@ JSON 格式：{"title":"主題","meeting_time":null,"thread_name":"","related_me
                 meeting_id,
                 f"分段整理 {segment_number}/{len(transcript_segments)}",
                 map_tokens,
+                model_event=model_event,
             )
             note = self._clean_note(result, [segment_number], annotate_items=True)
             self._save_checkpoint(
@@ -844,6 +986,7 @@ JSON 格式：{"title":"主題","meeting_time":null,"thread_name":"","related_me
             token_settings["reduce_input_tokens"],
             run_key,
             progress,
+            model_event,
         )
         result = self._load_checkpoint(meeting_id, run_key, "final", 0, "final", final_prompt)
         if result is not None:
@@ -852,7 +995,13 @@ JSON 格式：{"title":"主題","meeting_time":null,"thread_name":"","related_me
         else:
             if progress:
                 progress("產生最終摘要")
-            result = self._request_json(final_prompt, meeting_id, "最終摘要", final_tokens)
+            result = self._request_json(
+                final_prompt,
+                meeting_id,
+                "最終摘要",
+                final_tokens,
+                model_event=model_event,
+            )
             self._save_checkpoint(
                 meeting_id, run_key, "final", 0, "final", final_prompt, result
             )

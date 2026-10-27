@@ -8,7 +8,7 @@ from .rag import embed, similarity, transcript_chunks
 from .speaker_identity import cosine_similarity, normalize_embedding
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS meetings (id TEXT PRIMARY KEY, title TEXT NOT NULL, created_at TEXT NOT NULL, meeting_time TEXT DEFAULT '', summary TEXT DEFAULT '');
+    CREATE TABLE IF NOT EXISTS meetings (id TEXT PRIMARY KEY, title TEXT NOT NULL, created_at TEXT NOT NULL, meeting_time TEXT DEFAULT '', summary TEXT DEFAULT '', transcription_status TEXT NOT NULL DEFAULT 'not_started', transcription_stage TEXT DEFAULT '', transcription_error TEXT DEFAULT '');
 CREATE TABLE IF NOT EXISTS speakers (meeting_id TEXT NOT NULL, speaker_id TEXT NOT NULL, display_name TEXT, PRIMARY KEY (meeting_id, speaker_id));
 CREATE TABLE IF NOT EXISTS speaker_profiles (profile_id TEXT PRIMARY KEY, display_name TEXT NOT NULL, embedding_json TEXT NOT NULL, embedding_model TEXT NOT NULL, sample_count INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS utterances (meeting_id TEXT NOT NULL, utterance_id TEXT PRIMARY KEY, speaker_id TEXT NOT NULL, start_time REAL NOT NULL, end_time REAL NOT NULL, text TEXT NOT NULL, normalized_text TEXT NOT NULL, confidence REAL NOT NULL);
@@ -40,6 +40,19 @@ class MeetingDB:
         if "meeting_time" not in columns:
             self.connection.execute("ALTER TABLE meetings ADD COLUMN meeting_time TEXT DEFAULT ''")
             self.connection.execute("UPDATE meetings SET meeting_time=created_at WHERE meeting_time IS NULL OR meeting_time=''")
+        meeting_migrations = {
+            "transcription_status": "TEXT NOT NULL DEFAULT 'not_started'",
+            "transcription_stage": "TEXT DEFAULT ''",
+            "transcription_error": "TEXT DEFAULT ''",
+        }
+        for column, definition in meeting_migrations.items():
+            if column not in columns:
+                self.connection.execute(f"ALTER TABLE meetings ADD COLUMN {column} {definition}")
+        self.connection.execute(
+            "UPDATE meetings SET transcription_status='completed', transcription_stage='逐字稿已建立' "
+            "WHERE transcription_status='not_started' AND EXISTS "
+            "(SELECT 1 FROM utterances WHERE utterances.meeting_id=meetings.id)"
+        )
         speaker_columns = {row[1] for row in self.connection.execute("PRAGMA table_info(speakers)")}
         speaker_migrations = {
             "embedding_json": "TEXT",
@@ -64,6 +77,20 @@ class MeetingDB:
     def create_meeting(self, meeting_id: str, title: str, created_at: str) -> None:
         self.connection.execute("INSERT INTO meetings(id,title,created_at,meeting_time) VALUES(?,?,?,?)", (meeting_id, title, created_at, created_at))
         self.connection.commit()
+
+    def set_transcription_status(
+        self,
+        meeting_id: str,
+        status: str,
+        stage: str = "",
+        error: str | None = None,
+    ) -> None:
+        with self.lock:
+            self.connection.execute(
+                "UPDATE meetings SET transcription_status=?,transcription_stage=?,transcription_error=? WHERE id=?",
+                (status, stage, error or "", meeting_id),
+            )
+            self.connection.commit()
 
     def update_meeting_metadata(self, meeting_id: str, *, title: str, meeting_time: str) -> None:
         self.connection.execute("UPDATE meetings SET title=?,meeting_time=? WHERE id=?", (title, meeting_time, meeting_id))
@@ -405,11 +432,20 @@ class MeetingDB:
     def meetings(self) -> list[dict]:
         return [dict(row) for row in self.connection.execute("SELECT m.*,mt.thread_id,th.name AS thread_name FROM meetings m LEFT JOIN meeting_topics mt ON mt.meeting_id=m.id LEFT JOIN threads th ON th.thread_id=mt.thread_id ORDER BY m.created_at DESC")]
 
-    def logs(self, meeting_id: str | None = None) -> list[dict]:
+    def logs(self, meeting_id: str | None = None, limit: int | None = None) -> list[dict]:
         if meeting_id:
-            rows = self.connection.execute("SELECT * FROM logs WHERE meeting_id=? ORDER BY id", (meeting_id,))
-        else:
+            if limit is None:
+                rows = self.connection.execute("SELECT * FROM logs WHERE meeting_id=? ORDER BY id", (meeting_id,))
+            else:
+                rows = self.connection.execute(
+                    "SELECT * FROM logs WHERE meeting_id=? ORDER BY id DESC LIMIT ?",
+                    (meeting_id, max(1, int(limit))),
+                )
+                return [dict(row) for row in reversed(rows.fetchall())]
+        elif limit is None:
             rows = self.connection.execute("SELECT * FROM logs ORDER BY id DESC LIMIT 200")
+        else:
+            rows = self.connection.execute("SELECT * FROM logs ORDER BY id DESC LIMIT ?", (max(1, int(limit)),))
         return [dict(row) for row in rows]
 
     def delete_meeting(self, meeting_id: str) -> bool:
@@ -434,21 +470,13 @@ class MeetingDB:
     def purge(self) -> int:
         with self.lock:
             count = self.connection.execute("SELECT COUNT(*) FROM meetings").fetchone()[0]
-<<<<<<< Updated upstream
-            for table in ("rag_content", "rag_summaries", "rag_actions", "analysis_checkpoints", "follow_ups", "meeting_topics", "topics", "threads", "speakers", "utterances", "actions", "decisions", "logs", "evaluations", "meetings"):
-=======
             for table in ("rag_content", "rag_summaries", "rag_actions", "analysis_checkpoints", "follow_ups", "meeting_topics", "topics", "threads", "speakers", "speaker_profiles", "utterances", "actions", "decisions", "logs", "evaluations", "meetings"):
->>>>>>> Stashed changes
                 self.connection.execute(f"DELETE FROM {table}")
             self.connection.commit()
             return count
 
     def counts(self) -> dict[str, int]:
-<<<<<<< Updated upstream
-        return {table: self.connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in ("meetings", "speakers", "utterances", "actions", "decisions", "follow_ups", "logs", "evaluations", "threads", "rag_content", "rag_summaries", "rag_actions", "analysis_checkpoints")}
-=======
         return {table: self.connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in ("meetings", "speakers", "speaker_profiles", "utterances", "actions", "decisions", "follow_ups", "logs", "evaluations", "threads", "rag_content", "rag_summaries", "rag_actions", "analysis_checkpoints")}
->>>>>>> Stashed changes
 
     def save_evaluation(self, result: dict) -> int:
         cursor = self.connection.execute("INSERT INTO evaluations(meeting_id,created_at,result_json) VALUES(?,?,?)", (result["meeting_id"], result["created_at"], json.dumps(result, ensure_ascii=False)))

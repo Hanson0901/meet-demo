@@ -47,18 +47,62 @@ class MeetingTools:
             checkpoint_store=db,
         )
         self.evaluator = MeetingEvaluator(logger)
-    def transcribe_meeting(self, audio: str, title: str | None = None, started_at: str | None = None) -> str:
-        meeting_id = str(uuid.uuid4())
+    @staticmethod
+    def _started_at(started_at: str | None) -> datetime:
         try:
-            started = datetime.fromisoformat((started_at or "").replace("Z", "+00:00")) if started_at else datetime.now().astimezone()
+            return datetime.fromisoformat((started_at or "").replace("Z", "+00:00")) if started_at else datetime.now().astimezone()
         except ValueError:
-            started = datetime.now().astimezone()
+            return datetime.now().astimezone()
+
+    def prepare_meeting(self, title: str | None = None, started_at: str | None = None) -> str:
+        """Create the temporary record before a potentially long ASR job starts."""
+        meeting_id = str(uuid.uuid4())
+        started = self._started_at(started_at)
         created_at = started.isoformat(timespec="seconds")
         temporary_title = f"整理中 · {started.astimezone().strftime('%Y-%m-%d %H:%M')}"
         self.db.create_meeting(meeting_id, temporary_title, created_at)
-        for segment in self.audio.segments(audio):
+        self.db.set_transcription_status(meeting_id, "queued", "等待 FunASR")
+        return meeting_id
+
+    def transcribe_meeting(
+        self,
+        audio: str,
+        title: str | None = None,
+        started_at: str | None = None,
+        *,
+        meeting_id: str | None = None,
+        progress: Callable[[str], None] | None = None,
+    ) -> str:
+        if meeting_id is None:
+            meeting_id = self.prepare_meeting(title, started_at)
+        elif self.db.meeting(meeting_id) is None:
+            raise ValueError("找不到要保存語音辨識結果的會議")
+
+        segments = list(self.audio.segments(audio))
+        if not segments:
+            raise RuntimeError("音訊沒有可辨識的片段")
+        self.logger.emit("ASR", f"transcription started segments={len(segments)}", meeting_id=meeting_id)
+        if progress:
+            progress(f"載入 FunASR，準備辨識 {len(segments)} 段音訊")
+
+        recognized_count = 0
+        placeholder_count = 0
+        for index, segment in enumerate(segments, 1):
+            if progress:
+                progress(f"語音辨識中 {index}/{len(segments)}")
             for item in self.asr.transcribe(meeting_id, segment):
-                self.db.save_utterance(item, convert_traditional(item.text)); self.logger.emit("DB", f"utterance saved id={item.utterance_id}", meeting_id=meeting_id)
+                if item.text.startswith("["):
+                    placeholder_count += 1
+                else:
+                    recognized_count += 1
+                self.db.save_utterance(item, convert_traditional(item.text))
+                self.logger.emit("DB", f"utterance saved id={item.utterance_id}", meeting_id=meeting_id)
+
+        if placeholder_count and not recognized_count:
+            raise RuntimeError("FunASR 沒有完成辨識，請確認 py3_10 環境、FunASR 模型與音訊格式")
+
+        if progress:
+            progress("正在建立說話人聲紋資料")
         for speaker_id, embedding in self.asr.speaker_embeddings(audio).items():
             match = self.db.match_speaker_embedding(
                 meeting_id,
@@ -79,14 +123,29 @@ class MeetingTools:
                     f"CAM++ 聲紋候選 speaker={speaker_id} score={match['score']:.3f}，等待確認",
                     meeting_id=meeting_id,
                 )
+        if progress:
+            progress("正在整理姓名候選")
         text_suggestions = suggest_names_from_transcript(self.db.transcript(meeting_id))
         self.db.save_speaker_suggestions(meeting_id, text_suggestions)
+        self.logger.emit("ASR", f"transcription completed utterances={recognized_count}", meeting_id=meeting_id)
         return meeting_id
-    def summarize_meeting(self, meeting_id: str, *, progress: Callable[[str], None] | None = None):
+    def summarize_meeting(
+        self,
+        meeting_id: str,
+        *,
+        progress: Callable[[str], None] | None = None,
+        model_event: Callable[[dict], None] | None = None,
+    ):
         rows = self.db.transcript(meeting_id)
         query = self.llm.transcript_text(rows)
         related = self.db.related_context(query, meeting_id)
-        result = self.llm.analyze(meeting_id, rows, related, progress=progress)
+        result = self.llm.analyze(
+            meeting_id,
+            rows,
+            related,
+            progress=progress,
+            model_event=model_event,
+        )
         meeting = self.db.meeting(meeting_id) or {}
         generated_title = result.get("title", "").strip()
         has_summary = bool(result.get("summary", "").strip()) and result.get("summary", "").strip() != "- 尚無可分析內容"
@@ -121,7 +180,7 @@ class MeetingTools:
         rows = self.db.transcript(meeting_id)
         return self.db.related_context(self.llm.transcript_text(rows), meeting_id)
     def list_meetings(self): return self.db.meetings()
-    def meeting_logs(self, meeting_id: str | None = None): return self.db.logs(meeting_id)
+    def meeting_logs(self, meeting_id: str | None = None, limit: int | None = None): return self.db.logs(meeting_id, limit)
     def speakers(self, meeting_id: str): return self.db.speakers(meeting_id)
     def update_speakers(self, meeting_id: str, mapping: dict[str, str]):
         self.db.update_speakers(meeting_id, mapping)
@@ -136,9 +195,9 @@ class MeetingTools:
                 )
             ]
             self.db.index_rag(meeting_id, title, transcript_chunks(self.db.transcript(meeting_id)), summary, actions)
-    def suggest_speaker_names(self, meeting_id: str):
+    def suggest_speaker_names(self, meeting_id: str, *, model_event: Callable[[dict], None] | None = None):
         rows = self.db.transcript(meeting_id)
-        suggestions = self.llm.suggest_speaker_names(meeting_id, rows)
+        suggestions = self.llm.suggest_speaker_names(meeting_id, rows, model_event=model_event)
         self.db.save_speaker_suggestions(
             meeting_id,
             {item["speaker_id"]: item for item in suggestions},
