@@ -59,9 +59,10 @@
       <div class="token-settings-grid">
         <label class="token-setting" for="direct-max-tokens"><span>直接摘要判斷門檻</span><small>短逐字稿低於此值時嘗試一次摘要</small><input id="direct-max-tokens" type="number" min="256" max="8192" step="1" inputmode="numeric"></label>
         <label class="token-setting" for="chunk-tokens"><span>每段逐字稿輸入目標</span><small>長逐字稿切段大小</small><input id="chunk-tokens" type="number" min="256" max="8192" step="1" inputmode="numeric"></label>
-        <label class="token-setting" for="map-max-tokens"><span>每段整理輸出上限</span><small>每段事實、決議與待辦的輸出預算</small><input id="map-max-tokens" type="number" min="512" max="8192" step="1" inputmode="numeric"></label>
+        <label class="token-setting" for="map-max-tokens"><span>每段整理輸出上限</span><small>每段語意壓縮紀錄的輸出預算</small><input id="map-max-tokens" type="number" min="512" max="8192" step="1" inputmode="numeric"></label>
+        <label class="token-setting" for="verify-max-tokens"><span>重要段落驗證輸出上限</span><small>只核對含決議、待辦、期限或風險的段落</small><input id="verify-max-tokens" type="number" min="256" max="2048" step="1" inputmode="numeric"></label>
         <label class="token-setting" for="reduce-input-tokens"><span>每批合併輸入目標</span><small>較小的批次可降低合併輸出被截斷的機率</small><input id="reduce-input-tokens" type="number" min="512" max="8192" step="1" inputmode="numeric"></label>
-        <label class="token-setting" for="reduce-max-tokens"><span>每批合併輸出上限</span><small>合併保留完整事實清單的輸出預算</small><input id="reduce-max-tokens" type="number" min="512" max="8192" step="1" inputmode="numeric"></label>
+        <label class="token-setting" for="reduce-max-tokens"><span>每批合併輸出上限</span><small>合併壓縮語意紀錄的輸出預算</small><input id="reduce-max-tokens" type="number" min="512" max="8192" step="1" inputmode="numeric"></label>
         <label class="token-setting" for="final-max-tokens"><span>最終摘要輸出上限</span><small>主題、摘要、決議與待辦的輸出預算</small><input id="final-max-tokens" type="number" min="512" max="8192" step="1" inputmode="numeric"></label>
       </div>
       <div class="token-settings-actions"><button id="apply-token-settings">儲存摘要設定</button></div>
@@ -79,6 +80,6 @@
       <div id="meetings" class="meeting-table"></div>
     </section>
   </main>
-  <script src="/admin.js?v=3"></script>
+  <script src="/admin.js?v=4"></script>
 </body>
 </html>

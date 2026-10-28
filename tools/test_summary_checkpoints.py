@@ -21,6 +21,7 @@ TOKEN_SETTINGS = {
     "direct_max_tokens": 256,
     "chunk_tokens": 1800,
     "map_max_tokens": 3072,
+    "verify_max_tokens": 768,
     "reduce_input_tokens": 4096,
     "reduce_max_tokens": 4096,
     "final_max_tokens": 4096,
@@ -170,6 +171,29 @@ class SummaryCheckpointTests(unittest.TestCase):
         ]
         self.assertEqual(resumed_map_stages, ["分段整理 3/3"])
         self.assertEqual(result["title"], "測試主題")
+
+    def test_compact_notes_drop_evidence_and_detect_high_signal(self):
+        note = LLMOrchestrator._clean_note(
+            {
+                "gist": "活動時程與預算安排",
+                "facts": [
+                    {
+                        "claim": "距離活動剩下約 2 個月",
+                        "evidence": "距離活動，剩下約兩個月。",
+                        "speaker": "speaker-1",
+                    }
+                ],
+                "actions": [{"item": "下週提交預算", "owner": "王小明", "due_date": "下週"}],
+            },
+            [4],
+            annotate_items=True,
+        )
+
+        self.assertNotIn("facts", note)
+        self.assertEqual(note["key_points"], ["距離活動剩下約 2 個月"])
+        self.assertEqual(note["actions"][0]["source_segments"], [4])
+        self.assertTrue(LLMOrchestrator._needs_verification(note))
+        self.assertFalse(LLMOrchestrator._needs_verification({"key_points": ["一般背景說明"]}))
 
     def test_merge_overflow_splits_batch_and_resume_reuses_completed_child(self):
         meeting_id = "merge-resume-test"

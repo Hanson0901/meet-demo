@@ -22,6 +22,7 @@ const tokenSettingInputs = {
   direct_max_tokens: '#direct-max-tokens',
   chunk_tokens: '#chunk-tokens',
   map_max_tokens: '#map-max-tokens',
+  verify_max_tokens: '#verify-max-tokens',
   reduce_input_tokens: '#reduce-input-tokens',
   reduce_max_tokens: '#reduce-max-tokens',
   final_max_tokens: '#final-max-tokens',
