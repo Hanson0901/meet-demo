@@ -11,6 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Lock, Thread
 from urllib.parse import parse_qs, urlparse
+from .evaluation import EvaluationConfigurationError, EvaluationResponseFormatError
 from .tools import MeetingTools
 
 WEB_ROOT = Path(__file__).parent / "web"
@@ -633,6 +634,9 @@ def serve(tools: MeetingTools, host: str = "0.0.0.0", port: int = 8080):
             if parsed.path == "/api/evaluations":
                 meeting_id = parse_qs(parsed.query).get("meeting_id", [""])[0]
                 return self.send_json(tools.meeting_evaluations(meeting_id) if meeting_id else {"error": "meeting_id is required"}, 200 if meeting_id else 400)
+            if parsed.path == "/api/evaluation-references":
+                meeting_id = parse_qs(parsed.query).get("meeting_id", [""])[0]
+                return self.send_json(tools.evaluation_references(meeting_id) if meeting_id else {"error": "meeting_id is required"}, 200 if meeting_id else 400)
             if parsed.path in ("/api/search", "/search"):
                 params = parse_qs(parsed.query)
                 return self.send_json(tools.query_meeting_memory(params.get("q", [""])[0], params.get("type", ["all"])[0]))
@@ -643,17 +647,51 @@ def serve(tools: MeetingTools, host: str = "0.0.0.0", port: int = 8080):
             return self.send_json({"error": "not found"}, 404)
 
         def do_POST(self):
+            if self.path == "/api/evaluation-references":
+                try:
+                    payload = read_json_body(self.read_body())
+                    meeting_id = str(payload.get("meeting_id", "")).strip()
+                    filename = str(payload.get("filename", "external-summary.txt")).strip()
+                    content = payload.get("content")
+                    if not meeting_id:
+                        return self.send_json({"error": "meeting_id is required"}, 400)
+                    if not isinstance(content, str):
+                        return self.send_json({"error": "content 必須是文字"}, 400)
+                    return self.send_json(tools.import_evaluation_reference(meeting_id, filename, content), 201)
+                except ValueError as exc:
+                    return self.send_json({"error": str(exc)}, 400)
+                except Exception as exc:
+                    tools.logger.emit("EVAL", f"external reference import failed: {exc}", level="ERROR")
+                    return self.send_json({"error": "匯入外部整理失敗，請查看 log"}, 500)
             if self.path == "/api/evaluations":
                 try:
                     payload = read_json_body(self.read_body())
                     if not payload.get("meeting_id"): return self.send_json({"error": "meeting_id is required"}, 400)
-                    return self.send_json(tools.evaluate_meeting(payload["meeting_id"]), 201)
+                    include_remote = payload.get("include_remote", True)
+                    if not isinstance(include_remote, bool):
+                        return self.send_json({"error": "include_remote 必須是布林值"}, 400)
+                    external_reference_id = payload.get("external_reference_id")
+                    if external_reference_id == "":
+                        external_reference_id = None
+                    return self.send_json(tools.evaluate_meeting(
+                        payload["meeting_id"],
+                        include_remote=include_remote,
+                        external_reference_id=external_reference_id,
+                    ), 201)
                 except ValueError as exc:
                     return self.send_json({"error": str(exc)}, 400)
+                except EvaluationConfigurationError as exc:
+                    meeting_id = payload.get("meeting_id", "") if "payload" in locals() else ""
+                    tools.logger.emit("EVAL", f"evaluation configuration failed: {exc}", meeting_id=meeting_id or None, level="ERROR")
+                    return self.send_json({"error": str(exc), "code": "evaluation_configuration"}, 503)
+                except EvaluationResponseFormatError as exc:
+                    meeting_id = payload.get("meeting_id", "") if "payload" in locals() else ""
+                    tools.logger.emit("EVAL", f"evaluation response format failed: {exc}", meeting_id=meeting_id or None, level="ERROR")
+                    return self.send_json({"error": str(exc), "code": "evaluation_response_format"}, 502)
                 except Exception as exc:
                     meeting_id = payload.get("meeting_id", "") if "payload" in locals() else ""
                     tools.logger.emit("EVAL", f"evaluation failed: {exc}", meeting_id=meeting_id or None, level="ERROR")
-                    return self.send_json({"error": str(exc)}, 502)
+                    return self.send_json({"error": str(exc), "code": "evaluation_upstream"}, 502)
             speaker_suggestions_suffix = "/speaker-suggestions"
             if self.path.startswith("/api/meetings/") and self.path.endswith(speaker_suggestions_suffix):
                 meeting_id = self.path[len("/api/meetings/"):-len(speaker_suggestions_suffix)]

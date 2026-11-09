@@ -9,7 +9,11 @@ import unittest
 from pathlib import Path
 
 from meeting_assistant.db import MeetingDB
-from meeting_assistant.orchestrator import LLMOrchestrator, OutputTokenLimitError
+from meeting_assistant.orchestrator import (
+    LLMOrchestrator,
+    MalformedModelJSONError,
+    OutputTokenLimitError,
+)
 
 
 class NullLogger:
@@ -118,6 +122,76 @@ class AdaptiveReducer(FakeOrchestrator):
         return merged
 
 
+class VerifyRetryOrchestrator(LLMOrchestrator):
+    def __init__(
+        self,
+        database: MeetingDB,
+        *,
+        always_truncate: bool = False,
+        malformed_first: bool = False,
+    ):
+        super().__init__(
+            NullLogger(),
+            context_tokens=16384,
+            token_settings=TOKEN_SETTINGS,
+            checkpoint_store=database,
+        )
+        self.model_path = "offline-test-model.gguf"
+        self.always_truncate = always_truncate
+        self.malformed_first = malformed_first
+        self.requested_stages: list[tuple[str, int]] = []
+
+    def _load(self):
+        return object()
+
+    def _token_count(self, text: str) -> int:
+        return max(1, len(text.encode("utf-8")) // 4)
+
+    def _request_json(self, prompt, meeting_id, stage, max_tokens):
+        self.requested_stages.append((stage, max_tokens))
+        if stage.startswith("重要段落核對"):
+            if "精簡重試" not in stage:
+                if self.malformed_first:
+                    raise MalformedModelJSONError("simulated malformed verifier JSON")
+                raise OutputTokenLimitError("simulated verifier truncation")
+            if self.always_truncate:
+                raise OutputTokenLimitError("simulated verifier truncation")
+        if stage.startswith("重要段落核對"):
+            return {
+                "gist": "確認重要資訊",
+                "topic_candidates": [],
+                "named_entities": [],
+                "key_points": ["確認後的重要重點"],
+                "decisions": [],
+                "actions": [],
+                "open_questions": [],
+                "risks": [],
+                "meeting_time_mentions": [],
+            }
+        raise AssertionError(f"Unexpected fake model stage: {stage}")
+
+
+class VerifyCheckpointOrchestrator(FakeOrchestrator):
+    def _request_json(self, prompt, meeting_id, stage, max_tokens):
+        if stage.startswith("重要段落核對"):
+            self.requested_stages.append(stage)
+            return {
+                "gist": "核對後的重點",
+                "topic_candidates": [],
+                "named_entities": [],
+                "key_points": ["核對後的重要資訊"],
+                "decisions": [],
+                "actions": [],
+                "open_questions": [],
+                "risks": [],
+                "meeting_time_mentions": [],
+            }
+        result = super()._request_json(prompt, meeting_id, stage, max_tokens)
+        if stage.startswith("分段整理"):
+            result["actions"] = [{"item": "保存這個待辦", "owner": "", "due_date": ""}]
+        return result
+
+
 class SummaryCheckpointTests(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
@@ -172,6 +246,19 @@ class SummaryCheckpointTests(unittest.TestCase):
         self.assertEqual(resumed_map_stages, ["分段整理 3/3"])
         self.assertEqual(result["title"], "測試主題")
 
+    def test_verify_checkpoints_resume_with_map_annotations(self):
+        meeting_id = "verify-resume-test"
+        first_run = VerifyCheckpointOrchestrator(self.database, fail_segment=3)
+        with self.assertRaisesRegex(RuntimeError, "simulated interruption"):
+            first_run.analyze(meeting_id, self.rows())
+
+        resumed = VerifyCheckpointOrchestrator(self.database)
+        resumed.analyze(meeting_id, self.rows())
+        self.assertEqual(
+            resumed.requested_stages,
+            ["分段整理 3/3", "重要段落核對 3/3", "最終摘要"],
+        )
+
     def test_compact_notes_drop_evidence_and_detect_high_signal(self):
         note = LLMOrchestrator._clean_note(
             {
@@ -194,6 +281,74 @@ class SummaryCheckpointTests(unittest.TestCase):
         self.assertEqual(note["actions"][0]["source_segments"], [4])
         self.assertTrue(LLMOrchestrator._needs_verification(note))
         self.assertFalse(LLMOrchestrator._needs_verification({"key_points": ["一般背景說明"]}))
+
+    def test_parser_repairs_common_local_json_formatting_and_removes_emoji(self):
+        result = LLMOrchestrator._parse_object(
+            "模型說明\n```json\n"
+            "{'gist': '重點✅', 'key_points': ['確認日期📌',], 'actions': [],}\n"
+            "```"
+        )
+
+        self.assertEqual(result, {
+            "gist": "重點",
+            "key_points": ["確認日期"],
+            "actions": [],
+        })
+
+    def test_verifier_retries_with_compact_schema_after_token_limit(self):
+        orchestrator = VerifyRetryOrchestrator(self.database)
+        result, completed = orchestrator._verify_with_retry(
+            3,
+            4,
+            "本段討論重要數字與待辦。",
+            {
+                "gist": "討論重要數字",
+                "key_points": ["重要數字需要核對"],
+                "actions": [],
+            },
+            "verify-retry-test",
+            768,
+        )
+
+        self.assertTrue(completed)
+        self.assertEqual(result["gist"], "確認重要資訊")
+        self.assertEqual(
+            orchestrator.requested_stages,
+            [
+                ("重要段落核對 3/4", 768),
+                ("重要段落核對 3/4（精簡重試）", 1536),
+            ],
+        )
+
+    def test_verifier_falls_back_to_map_note_after_two_truncations(self):
+        orchestrator = VerifyRetryOrchestrator(self.database, always_truncate=True)
+        result, completed = orchestrator._verify_with_retry(
+            3,
+            4,
+            "本段討論重要數字與待辦。",
+            {"gist": "保留分段結果", "key_points": ["重要重點"]},
+            "verify-fallback-test",
+            768,
+        )
+
+        self.assertFalse(completed)
+        self.assertIsNone(result)
+        self.assertEqual(len(orchestrator.requested_stages), 2)
+
+    def test_verifier_retries_after_malformed_json(self):
+        orchestrator = VerifyRetryOrchestrator(self.database, malformed_first=True)
+        result, completed = orchestrator._verify_with_retry(
+            3,
+            4,
+            "本段討論重要數字與待辦。",
+            {"gist": "保留分段結果", "key_points": ["重要重點"]},
+            "verify-malformed-test",
+            1536,
+        )
+
+        self.assertTrue(completed)
+        self.assertEqual(result["gist"], "確認重要資訊")
+        self.assertEqual(orchestrator.requested_stages[1][0], "重要段落核對 3/4（精簡重試）")
 
     def test_merge_overflow_splits_batch_and_resume_reuses_completed_child(self):
         meeting_id = "merge-resume-test"

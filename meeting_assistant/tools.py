@@ -8,7 +8,7 @@ from .db import MeetingDB
 from .logging import EventLogger
 from .normalize import convert_traditional
 from .orchestrator import LLMOrchestrator
-from .evaluation import MeetingEvaluator
+from .evaluation import MeetingEvaluator, parse_external_summary
 from .rag import transcript_chunks
 from .speaker_identity import suggest_names_from_transcript, voiceprint_match_threshold
 
@@ -203,10 +203,56 @@ class MeetingTools:
             {item["speaker_id"]: item for item in suggestions},
         )
         return {"suggestions": suggestions, "speakers": self.db.speakers(meeting_id)}
-    def evaluate_meeting(self, meeting_id: str):
+    def import_evaluation_reference(self, meeting_id: str, filename: str, content: str):
+        if self.db.meeting(meeting_id) is None:
+            raise ValueError("找不到要匯入外部整理的會議")
+        safe_filename = str(filename or "external-summary.txt").strip()[:255] or "external-summary.txt"
+        parsed = parse_external_summary(content, safe_filename)
+        reference = self.db.save_evaluation_reference(meeting_id, safe_filename, content, parsed)
+        self.logger.emit("EVAL", f"外部會議整理已匯入 filename={safe_filename}", meeting_id=meeting_id)
+        return {
+            "id": reference["id"],
+            "meeting_id": meeting_id,
+            "imported_at": reference["imported_at"],
+            "filename": safe_filename,
+            "title": parsed.get("title", ""),
+            "summary_preview": str(parsed.get("summary", ""))[:180],
+            "action_count": len(parsed.get("actions", [])),
+            "decision_count": len(parsed.get("decisions", [])),
+        }
+
+    def evaluation_references(self, meeting_id: str):
+        return self.db.evaluation_references(meeting_id)
+
+    def evaluate_meeting(
+        self,
+        meeting_id: str,
+        *,
+        include_remote: bool = True,
+        external_reference_id: int | None = None,
+    ):
         rows = self.db.transcript(meeting_id)
         related = self.db.related_context(self.llm.transcript_text(rows), meeting_id)
-        result = self.evaluator.evaluate(meeting_id, rows, self.db.analysis(meeting_id), related)
+        external = None
+        reference_id = None
+        if external_reference_id is not None:
+            try:
+                reference_id = int(external_reference_id)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("external_reference_id 必須是整數") from exc
+            reference = self.db.evaluation_reference(meeting_id, reference_id)
+            if reference is None:
+                raise ValueError("找不到指定的外部會議整理")
+            external = reference["parsed"]
+        result = self.evaluator.evaluate(
+            meeting_id,
+            rows,
+            self.db.analysis(meeting_id),
+            related,
+            include_remote=include_remote,
+            external=external,
+            external_reference_id=reference_id,
+        )
         self.db.save_evaluation(result)
         return result
     def meeting_evaluations(self, meeting_id: str): return self.db.evaluations(meeting_id)

@@ -94,13 +94,15 @@ RAG 資料目前存放於同一個 SQLite 資料庫的三張表中，並非三�
 | 搜尋 RAG 記憶 | `/api/search?q=...&type=content\|summary\|action\|all` | GET |
 | 健康檢查 | `/health` | GET |
 
+評估頁固定使用已保存的本地 llama.cpp 摘要；遠端摘要與外部整理可選，但至少選兩個來源。外部 TXT／Markdown 會保存於 `evaluation_references`，解析後可作為第三個匿名候選，與本地及遠端結果共同評分。
+
 完整會議記錄頁會顯示會議名稱與日期、摘要、說話人、逐字稿、待辦、決議、前次待辦追蹤、所屬會議串及處理記錄。資料預設存於 `data/meetings.sqlite3`，上傳音訊存於 `data/uploads/`。
 
 ## 遠端模型評估
 
-1. 先在會議頁完成一次本地 llama.cpp 摘要；評估頁不會重新執行本地模型。
+1. 先在會議頁完成一次本地 llama.cpp 摘要；評估頁不會重新執行本地模型，本地摘要固定納入。
 2. 開啟 `/evaluate` 並選擇會議，按評估按鈕後呼叫 `POST /api/evaluations`。
-3. 遠端 Responses API（預設 `gpt-6-luna`）產生另一份摘要；評審模型以原始逐字稿為準，匿名比較兩份結果的事實正確性、涵蓋度及待辦／決議準確性。
+3. 遠端摘要與外部整理是可選來源，至少選兩個；遠端 Responses API（預設 `gpt-6-luna`）產生摘要，評審模型以原始逐字稿為準，匿名比較各候選的事實正確性、涵蓋度及待辦／決議準確性。
 4. 評估結果保存於 `evaluations`，可於頁面查看歷史結果。評分是模型估計，不能視為人工標註的客觀正確率。
 
 這個長逐字稿 map/reduce 流程目前用於本地 llama.cpp 摘要；評估頁的遠端 Responses API 仍以原逐字稿進行遠端摘要及評審，不會重跑本地模型。

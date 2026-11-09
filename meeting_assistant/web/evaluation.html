@@ -1,8 +1,57 @@
 <!doctype html>
-<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>模型評估｜會議記憶</title><link rel="stylesheet" href="/evaluation.css"></head>
-<body><header class="appbar"><a class="brand" href="/"><span class="brand-mark"><svg viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5zM4 5.5v15M8 7h8M8 10h8M8 13h5"/></svg></span><span><strong>會議記憶</strong><small>MEETING ASSISTANT</small></span></a><nav><a href="/">會議</a><a class="active" href="/evaluate">模型評估</a><a href="/admin">管理</a></nav></header>
-<main><section class="page-intro"><p class="overline">MODEL EVALUATION</p><h1>比較會議摘要品質</h1><p>沿用已保存的本地摘要，再透過遠端模型生成摘要與評分。</p></section>
-<section class="control-card"><label for="meeting-select">選擇會議</label><div class="control-row"><select id="meeting-select"><option value="">載入會議中…</option></select><button id="run"><svg viewBox="0 0 24 24"><path d="M4 19V5m0 14h16M8 15l3-4 3 2 5-7"/></svg>呼叫遠端模型進行比較</button></div><span id="status">先在會議頁完成本地 llama.cpp 分析；此頁只呼叫遠端 API。</span></section>
-<aside class="notice"><span class="notice-mark"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/></svg></span><p>分數由 gpt-6-luna 根據逐字稿評估，屬於模型評審估分，不能取代人工標註的客觀準確率。</p></aside>
-<section id="result" hidden><div class="result-heading"><div><p class="overline">RESULT</p><h2>評估結果</h2><p id="result-meta" class="muted"></p></div><strong id="winner" class="winner"></strong></div><div class="score-grid"><article class="score-card"><div class="card-head"><span class="model-dot local-dot"></span><h3>本地 llama.cpp</h3></div><div id="local-score"></div></article><article class="score-card"><div class="card-head"><span class="model-dot remote-dot"></span><h3>遠端 gpt-6-luna</h3></div><div id="remote-score"></div></article></div><article class="reason-card"><h3>評審比較</h3><p id="reason"></p></article><div class="summary-grid"><article class="summary-card"><p class="overline">LOCAL MODEL</p><h3>本地模型輸出</h3><div id="local-summary"></div></article><article class="summary-card"><p class="overline">REMOTE MODEL</p><h3>遠端模型輸出</h3><div id="remote-summary"></div></article></div></section>
-<section class="history-card"><div class="card-head"><div><p class="overline">HISTORY</p><h2>評估紀錄</h2></div></div><div id="history-list" class="history-list">選擇會議以載入紀錄</div></section></main><script src="/evaluation.js?v=6"></script></body></html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>模型評估｜會議記憶</title>
+  <link rel="stylesheet" href="/evaluation.css?v=7">
+</head>
+<body>
+  <header class="appbar">
+    <a class="brand" href="/">
+      <span class="brand-mark"><svg viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5zM4 5.5v15M8 7h8M8 10h8M8 13h5"/></svg></span>
+      <span><strong>會議記憶</strong><small>MEETING ASSISTANT</small></span>
+    </a>
+    <nav><a href="/">會議</a><a class="active" href="/evaluate">模型評估</a><a href="/admin">管理</a></nav>
+  </header>
+
+  <main>
+    <section class="page-intro">
+      <p class="overline">MODEL EVALUATION</p>
+      <h1>比較會議摘要品質</h1>
+      <p>本地摘要固定納入；可選擇遠端模型與外部整理，至少比較兩個來源。</p>
+    </section>
+
+    <section class="control-card">
+      <label for="meeting-select">選擇會議</label>
+      <div class="control-row">
+        <select id="meeting-select"><option value="">載入會議中…</option></select>
+        <button id="run"><svg viewBox="0 0 24 24"><path d="M4 19V5m0 14h16M8 15l3-4 3 2 5-7"/></svg>開始評估</button>
+      </div>
+      <div class="source-options" aria-label="評估來源">
+        <span class="source-required"><span class="source-dot local-dot"></span>本地 llama.cpp（固定納入）</span>
+        <label class="source-option"><input id="include-remote" type="checkbox" checked><span><strong>遠端 gpt-6-luna</strong><small>產生另一份摘要並參與評分</small></span></label>
+        <label class="source-option external-option"><span class="source-dot external-dot"></span><span><strong>外部會議整理</strong><small>匯入後可選擇納入比較</small></span><select id="external-reference" disabled><option value="">不使用外部整理</option></select></label>
+      </div>
+      <div class="external-import">
+        <div class="import-heading"><div><strong>匯入外部會議整理</strong><small>支援 TXT、Markdown 或其他純文字報告；內容會保存於所選會議。</small></div><label class="file-button" for="external-file">選擇檔案<input id="external-file" type="file" accept=".txt,.md,.json,text/plain,text/markdown,application/json" disabled></label></div>
+        <div class="import-actions"><span id="external-file-name" class="muted">尚未選擇檔案</span><button id="import-external" class="secondary-button" disabled>匯入</button></div>
+        <p id="external-import-status" class="status-message" role="status" aria-live="polite">請先選擇會議。</p>
+      </div>
+      <span id="status">本地摘要固定納入；請至少選擇遠端或一份外部整理。</span>
+    </section>
+
+    <aside class="notice"><span class="notice-mark"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/></svg></span><p>評分由遠端評審模型根據原始逐字稿執行；外部整理可作為第三個候選，但不會取代本地摘要。</p></aside>
+
+    <section id="result" hidden>
+      <div class="result-heading"><div><p class="overline">RESULT</p><h2>評估結果</h2><p id="result-meta" class="muted"></p></div><strong id="winner" class="winner"></strong></div>
+      <div id="score-grid" class="score-grid"></div>
+      <article class="reason-card"><h3>評審比較</h3><p id="reason"></p></article>
+      <div id="summary-grid" class="summary-grid"></div>
+    </section>
+
+    <section class="history-card"><div class="card-head"><div><p class="overline">HISTORY</p><h2>評估紀錄</h2></div></div><div id="history-list" class="history-list">選擇會議以載入紀錄</div></section>
+  </main>
+  <script src="/evaluation.js?v=7"></script>
+</body>
+</html>

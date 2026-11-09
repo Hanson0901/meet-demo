@@ -81,6 +81,7 @@ tools/benchmark_llama_context_speed.py
 tools/test_llama_context_limit.py
 tools/test_speaker_identity.py
 tools/test_summary_checkpoints.py
+scripts/meeting-assistant-service.sh
 LICENSE.txt
 README.md
 ```
@@ -177,7 +178,7 @@ test -r "$LLAMA_CPP_MODEL"
 
 ## 5. 所有環境變數
 
-程式不會自動載入 dotenv。手動執行使用 `export`；systemd 使用 `EnvironmentFile`。目前 `.env.example` 是舊版 Flask 配置樣板，不是本專案的自動配置入口。
+程式不會自動載入一般 `.env` 或執行 `~/.bashrc`。手動執行使用 `export`；systemd 使用 `EnvironmentFile`。評估器在程序環境缺少遠端設定時，會讀取明確指定的 `MEETING_ENV_FILE`／`CGULLM_ENV_FILE`，預設為 `/home/cgu-csie/.config/meeting-assistant.env`，但只解析 `CGULLM_*` 設定，不會執行 shell 程式碼。目前 `.env.example` 是舊版 Flask 配置樣板，不是本專案的自動配置入口。
 
 ### 本地 LLM
 
@@ -228,6 +229,7 @@ export PYTHONUNBUFFERED=1
 | `CGULLM_BASE_URL` | `https://air.cgu.edu.tw/cgullmapi/v1` | OpenAI 相容 base URL |
 | `CGULLM_MODEL` | `gpt-6-luna` | 遠端摘要／評審模型 |
 | `CGULLM_TIMEOUT` | 180 | 遠端 timeout，秒 |
+| `MEETING_ENV_FILE`／`CGULLM_ENV_FILE` | `~/.config/meeting-assistant.env` | 評估器讀取的服務環境檔 |
 
 手動設定：
 
@@ -239,7 +241,7 @@ export CGULLM_MODEL='gpt-6-luna'
 export CGULLM_TIMEOUT=180
 ```
 
-`.bashrc` 只影響互動式 shell；user systemd 不一定會載入它。正式服務請使用下面的 systemd `EnvironmentFile`。
+`.bashrc` 只影響互動式 shell；user systemd 不一定會載入它。正式服務請使用下面的 systemd `EnvironmentFile`。若使用專案控制腳本建立一次性 user systemd unit，且環境檔不存在，腳本會將目前互動式 shell 已 export 的 `CGULLM_*` 設定繼承給新服務；直接執行 `systemctl --user restart` 時則使用服務建立時保存的環境。
 
 ## 6. 啟動與重啟
 
@@ -313,6 +315,20 @@ systemctl --user status meeting-assistant.service
 systemctl --user restart meeting-assistant.service
 systemctl --user stop meeting-assistant.service
 ```
+
+也可以使用專案內的控制腳本：
+
+```bash
+chmod +x scripts/meeting-assistant-service.sh
+scripts/meeting-assistant-service.sh start
+scripts/meeting-assistant-service.sh stop
+scripts/meeting-assistant-service.sh restart
+scripts/meeting-assistant-service.sh status
+scripts/meeting-assistant-service.sh health
+scripts/meeting-assistant-service.sh logs
+```
+
+`start` 會優先啟動既有的 user systemd unit；如果目前是一次性 unit 且停止後已不存在，會使用目前專案、Python 3.10 與 Qwen GGUF 設定重新建立服務。腳本也接受 `open`／`close` 作為 `start`／`stop` 的別名。
 
 ### 永久 user systemd
 
@@ -430,6 +446,7 @@ RAG 使用同一 SQLite 的三張表：
 - `actions`、`decisions`、`follow_ups`：待辦、決議、前次追蹤。
 - `logs`：處理紀錄。
 - `evaluations`：遠端評估。
+- `evaluation_references`：匯入的外部會議整理，與所屬會議關聯。
 - `analysis_checkpoints`：長摘要恢復。
 - `app_settings`：管理頁 context／token 設定。
 
@@ -467,7 +484,10 @@ systemctl --user start meeting-assistant.service
 | 開始摘要 | `POST /api/meetings/{id}/analyze` |
 | 摘要狀態 | `GET /api/meetings/{id}/analysis-status` |
 | RAG 搜尋 | `GET /api/search?q=關鍵字&type=all` |
+| 外部整理清單 | `GET /api/evaluation-references?meeting_id={id}` |
+| 匯入外部整理 | `POST /api/evaluation-references` |
 | 評估歷史 | `GET /api/evaluations?meeting_id={id}` |
+| 執行評估 | `POST /api/evaluations` |
 | 管理統計 | `GET /api/admin/stats` |
 | 管理設定 | `GET/PUT /api/admin/config` |
 | 刪除會議 | `DELETE /api/admin/meetings/{id}` |
@@ -475,7 +495,13 @@ systemctl --user start meeting-assistant.service
 
 ## 10. 遠端模型評估
 
-先完成一次本地 llama.cpp 摘要，再開啟 `/evaluate`。評估頁不會重新執行本地模型，而是呼叫：
+先完成一次本地 llama.cpp 摘要，再開啟 `/evaluate`。本地摘要固定納入評估；遠端摘要與外部整理是可選來源，但至少要有兩個來源。可使用：
+
+- 本地摘要＋遠端 `gpt-6-luna`
+- 本地摘要＋匯入的外部整理
+- 本地摘要＋遠端 `gpt-6-luna`＋匯入的外部整理
+
+評估頁不會重新執行本地模型。勾選遠端時才會呼叫：
 
 - Base URL：`https://air.cgu.edu.tw/cgullmapi/v1`
 - Model：`gpt-6-luna`
@@ -489,7 +515,36 @@ export CGULLM_BASE_URL='https://air.cgu.edu.tw/cgullmapi/v1'
 export CGULLM_MODEL='gpt-6-luna'
 ```
 
+服務環境檔建議放在專案外並限制權限：
+
+```text
+CGULLM_API_KEY=請填入 API key
+CGULLM_BASE_URL=https://air.cgu.edu.tw/cgullmapi/v1
+CGULLM_MODEL=gpt-6-luna
+CGULLM_TIMEOUT=180
+```
+
+```bash
+chmod 600 /home/cgu-csie/.config/meeting-assistant.env
+```
+
+評估缺少 key 時後端會回傳 503 設定錯誤；遠端 API 的連線、驗證或回應錯誤才會回傳 502。評估前仍須先完成該會議的本地 llama.cpp 摘要。
+
+遠端摘要或評審模型若輸出不完整 JSON，評估器會先使用本地容錯 parser；仍無法解析時，再要求遠端模型修復一次，避免模型偶發的引號或尾逗號格式錯誤直接中斷評估。
+
 評估結果保存於 `evaluations`；分數是模型估計，不等同人工標註的客觀正確率。
+
+外部整理可在評估頁選擇會議後匯入 TXT、Markdown 或其他純文字檔。系統會解析標題、摘要、重點、決策與行動項目；原始內容也會保存於 `evaluation_references`，供該會議後續評估使用。匯入請求格式：
+
+```json
+{
+  "meeting_id": "會議 ID",
+  "filename": "output_meeting_summary.txt",
+  "content": "外部整理全文"
+}
+```
+
+執行評估時可傳入 `include_remote` 與 `external_reference_id`；`include_remote` 預設為 `true`，本地摘要永遠會納入。
 
 ## 11. Log、Nginx 與 HTTPS
 

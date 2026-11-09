@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS actions (id INTEGER PRIMARY KEY AUTOINCREMENT, meetin
 CREATE TABLE IF NOT EXISTS decisions (id INTEGER PRIMARY KEY AUTOINCREMENT, meeting_id TEXT NOT NULL, decision TEXT NOT NULL, context TEXT DEFAULT '');
 CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY AUTOINCREMENT, meeting_id TEXT, timestamp TEXT NOT NULL, module TEXT NOT NULL, level TEXT NOT NULL, message TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS evaluations (id INTEGER PRIMARY KEY AUTOINCREMENT, meeting_id TEXT NOT NULL, created_at TEXT NOT NULL, result_json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS evaluation_references (id INTEGER PRIMARY KEY AUTOINCREMENT, meeting_id TEXT NOT NULL, imported_at TEXT NOT NULL, filename TEXT NOT NULL, content TEXT NOT NULL, parsed_json TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_evaluation_references_meeting ON evaluation_references(meeting_id);
 CREATE TABLE IF NOT EXISTS threads (thread_id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS topics (topic_key TEXT PRIMARY KEY, display_name TEXT NOT NULL, thread_id TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS meeting_topics (meeting_id TEXT PRIMARY KEY, topic_key TEXT NOT NULL, thread_id TEXT NOT NULL);
@@ -427,7 +429,7 @@ class MeetingDB:
 
     def export(self, meeting_id: str) -> dict:
         topic = self.connection.execute("SELECT t.topic_key,t.display_name,t.thread_id,th.name AS thread_name FROM meeting_topics mt JOIN topics t ON t.topic_key=mt.topic_key JOIN threads th ON th.thread_id=mt.thread_id WHERE mt.meeting_id=?", (meeting_id,)).fetchone()
-        return {"meeting": self.meeting(meeting_id), "topic": dict(topic) if topic else None, "related_meetings": self.thread_meetings(meeting_id), "speakers": self.speakers(meeting_id), "transcript": self.transcript(meeting_id), "actions": [dict(r) for r in self.connection.execute("SELECT * FROM actions WHERE meeting_id=?",(meeting_id,))], "decisions": [dict(r) for r in self.connection.execute("SELECT * FROM decisions WHERE meeting_id=?",(meeting_id,))], "follow_ups": self.follow_ups(meeting_id)}
+        return {"meeting": self.meeting(meeting_id), "topic": dict(topic) if topic else None, "related_meetings": self.thread_meetings(meeting_id), "speakers": self.speakers(meeting_id), "transcript": self.transcript(meeting_id), "actions": [dict(r) for r in self.connection.execute("SELECT * FROM actions WHERE meeting_id=?",(meeting_id,))], "decisions": [dict(r) for r in self.connection.execute("SELECT * FROM decisions WHERE meeting_id=?",(meeting_id,))], "follow_ups": self.follow_ups(meeting_id), "evaluation_references": self.evaluation_references(meeting_id)}
 
     def meetings(self) -> list[dict]:
         return [dict(row) for row in self.connection.execute("SELECT m.*,mt.thread_id,th.name AS thread_name FROM meetings m LEFT JOIN meeting_topics mt ON mt.meeting_id=m.id LEFT JOIN threads th ON th.thread_id=mt.thread_id ORDER BY m.created_at DESC")]
@@ -453,7 +455,7 @@ class MeetingDB:
             exists = self.connection.execute("SELECT 1 FROM meetings WHERE id=?", (meeting_id,)).fetchone()
             if not exists:
                 return False
-            for table in ("rag_content", "rag_summaries", "rag_actions", "analysis_checkpoints", "speakers", "utterances", "actions", "decisions", "logs", "evaluations"):
+            for table in ("rag_content", "rag_summaries", "rag_actions", "analysis_checkpoints", "speakers", "utterances", "actions", "decisions", "logs", "evaluations", "evaluation_references"):
                 self.connection.execute(f"DELETE FROM {table} WHERE meeting_id=?", (meeting_id,))
             self.connection.execute(
                 "DELETE FROM speaker_profiles WHERE NOT EXISTS "
@@ -470,13 +472,13 @@ class MeetingDB:
     def purge(self) -> int:
         with self.lock:
             count = self.connection.execute("SELECT COUNT(*) FROM meetings").fetchone()[0]
-            for table in ("rag_content", "rag_summaries", "rag_actions", "analysis_checkpoints", "follow_ups", "meeting_topics", "topics", "threads", "speakers", "speaker_profiles", "utterances", "actions", "decisions", "logs", "evaluations", "meetings"):
+            for table in ("rag_content", "rag_summaries", "rag_actions", "analysis_checkpoints", "follow_ups", "meeting_topics", "topics", "threads", "speakers", "speaker_profiles", "utterances", "actions", "decisions", "logs", "evaluations", "evaluation_references", "meetings"):
                 self.connection.execute(f"DELETE FROM {table}")
             self.connection.commit()
             return count
 
     def counts(self) -> dict[str, int]:
-        return {table: self.connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in ("meetings", "speakers", "speaker_profiles", "utterances", "actions", "decisions", "follow_ups", "logs", "evaluations", "threads", "rag_content", "rag_summaries", "rag_actions", "analysis_checkpoints")}
+        return {table: self.connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in ("meetings", "speakers", "speaker_profiles", "utterances", "actions", "decisions", "follow_ups", "logs", "evaluations", "evaluation_references", "threads", "rag_content", "rag_summaries", "rag_actions", "analysis_checkpoints")}
 
     def save_evaluation(self, result: dict) -> int:
         cursor = self.connection.execute("INSERT INTO evaluations(meeting_id,created_at,result_json) VALUES(?,?,?)", (result["meeting_id"], result["created_at"], json.dumps(result, ensure_ascii=False)))
@@ -485,6 +487,52 @@ class MeetingDB:
 
     def evaluations(self, meeting_id: str) -> list[dict]:
         return [{"id": row["id"], **json.loads(row["result_json"])} for row in self.connection.execute("SELECT id,result_json FROM evaluations WHERE meeting_id=? ORDER BY id DESC", (meeting_id,))]
+
+    def save_evaluation_reference(self, meeting_id: str, filename: str, content: str, parsed: dict) -> dict:
+        imported_at = self._timestamp_now()
+        with self.lock:
+            cursor = self.connection.execute(
+                "INSERT INTO evaluation_references(meeting_id,imported_at,filename,content,parsed_json) VALUES(?,?,?,?,?)",
+                (meeting_id, imported_at, filename, content, json.dumps(parsed, ensure_ascii=False)),
+            )
+            self.connection.commit()
+            reference_id = cursor.lastrowid
+        return {"id": reference_id, "meeting_id": meeting_id, "imported_at": imported_at, "filename": filename, "parsed": parsed}
+
+    def evaluation_reference(self, meeting_id: str, reference_id: int) -> dict | None:
+        row = self.connection.execute(
+            "SELECT id,meeting_id,imported_at,filename,content,parsed_json FROM evaluation_references WHERE meeting_id=? AND id=?",
+            (meeting_id, reference_id),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "id": row["id"],
+            "meeting_id": row["meeting_id"],
+            "imported_at": row["imported_at"],
+            "filename": row["filename"],
+            "content": row["content"],
+            "parsed": json.loads(row["parsed_json"]),
+        }
+
+    def evaluation_references(self, meeting_id: str) -> list[dict]:
+        result = []
+        for row in self.connection.execute(
+            "SELECT id,meeting_id,imported_at,filename,parsed_json FROM evaluation_references WHERE meeting_id=? ORDER BY id DESC",
+            (meeting_id,),
+        ):
+            parsed = json.loads(row["parsed_json"])
+            result.append({
+                "id": row["id"],
+                "meeting_id": row["meeting_id"],
+                "imported_at": row["imported_at"],
+                "filename": row["filename"],
+                "title": parsed.get("title", ""),
+                "summary_preview": str(parsed.get("summary", ""))[:180],
+                "action_count": len(parsed.get("actions", [])) if isinstance(parsed.get("actions"), list) else 0,
+                "decision_count": len(parsed.get("decisions", [])) if isinstance(parsed.get("decisions"), list) else 0,
+            })
+        return result
 
     def link_topic(self, meeting_id: str, topic_name: str, related_meeting_ids: list[str], suggested_thread_name: str = "") -> dict:
         topic_key = topic_name.strip()

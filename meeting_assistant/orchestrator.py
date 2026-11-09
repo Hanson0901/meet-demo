@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+import ast
 import hashlib
 import json
 import os
@@ -42,6 +43,10 @@ class AnalysisCheckpointStore(Protocol):
 
 class OutputTokenLimitError(RuntimeError):
     """Raised when the model stopped before completing a JSON response."""
+
+
+class MalformedModelJSONError(RuntimeError):
+    """Raised when a model response cannot be safely recovered as JSON."""
 
 
 class LLMOrchestrator:
@@ -260,23 +265,77 @@ class LLMOrchestrator:
             return {"context_tokens": requested, "model_reloaded": was_loaded, "unchanged": False}
 
     @staticmethod
-    def _parse_object(content: str) -> dict:
-        content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content.strip(), flags=re.I)
-        start, end = content.find("{"), content.rfind("}")
-        if start >= 0 and end > start:
-            content = content[start : end + 1]
-        result = json.loads(content)
-        if not isinstance(result, dict):
-            raise ValueError("模型回應不是 JSON object")
-        return result
+    def _strip_emoji(value: str) -> str:
+        """Remove emoji and presentation characters from model-facing text."""
+        return re.sub(
+            r"[\U0001F1E6-\U0001FAFF\u2600-\u27FF\u2B00-\u2BFF\u3030\u303D\u3297\u3299\u00A9\u00AE\u2122\u200D\uFE0F\u20E3]",
+            "",
+            str(value),
+        )
+
+    @staticmethod
+    def _balanced_json_objects(content: str):
+        """Yield balanced object candidates while respecting quoted strings."""
+        for start, character in enumerate(content):
+            if character != "{":
+                continue
+            depth = 0
+            in_string = False
+            escaped = False
+            for index in range(start, len(content)):
+                current = content[index]
+                if in_string:
+                    if escaped:
+                        escaped = False
+                    elif current == "\\":
+                        escaped = True
+                    elif current == '"':
+                        in_string = False
+                    continue
+                if current == '"':
+                    in_string = True
+                elif current == "{":
+                    depth += 1
+                elif current == "}":
+                    depth -= 1
+                    if depth == 0:
+                        yield content[start : index + 1]
+                        break
+
+    @classmethod
+    def _parse_object(cls, content: str) -> dict:
+        """Parse common local-model JSON variants without accepting arbitrary code."""
+        content = cls._strip_emoji(content)
+        content = re.sub(r"<think>.*?</think>", "", content, flags=re.I | re.S).strip()
+        content = content.translate(str.maketrans({"“": '"', "”": '"', "‘": "'", "’": "'"}))
+        candidates = list(cls._balanced_json_objects(content)) or [content]
+        variants = []
+        for candidate in candidates:
+            variants.append(candidate)
+            variants.append(re.sub(r",\s*([}\]])", r"\1", candidate))
+
+        for candidate in variants:
+            try:
+                result = json.loads(candidate)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                try:
+                    # Some local instruct models emit Python-style single quotes.
+                    # literal_eval only accepts literals; it does not execute code.
+                    result = ast.literal_eval(candidate)
+                except (ValueError, SyntaxError, TypeError, MemoryError):
+                    continue
+            if isinstance(result, dict):
+                return result
+
+        raise MalformedModelJSONError("模型回應不是完整且可解析的 JSON object")
 
     @classmethod
     def _normalize_result(cls, result: dict) -> dict:
         return {
-            "title": str(result.get("title", "")).strip(),
+            "title": cls._strip_emoji(str(result.get("title", ""))).strip(),
             "meeting_time": result.get("meeting_time"),
-            "thread_name": str(result.get("thread_name", "")).strip(),
-            "summary": str(result.get("summary", "")),
+            "thread_name": cls._strip_emoji(str(result.get("thread_name", ""))).strip(),
+            "summary": cls._strip_emoji(str(result.get("summary", ""))),
             "actions": result.get("actions", []) if isinstance(result.get("actions", []), list) else [],
             "decisions": result.get("decisions", []) if isinstance(result.get("decisions", []), list) else [],
             "follow_ups": result.get("follow_ups", []) if isinstance(result.get("follow_ups", []), list) else [],
@@ -427,6 +486,114 @@ decisions 只列明確作成的決定，actions 只列明確要求執行的待�
 {draft}"""
 
     @classmethod
+    def _verify_retry_prompt(cls, segment_number: int, transcript_segment: str, note: dict) -> str:
+        """Use a smaller schema when the first verifier response is truncated.
+
+        The regular verifier prompt is intentionally descriptive for quality, but a
+        local model can spend its output budget repeating the source text.  The
+        retry keeps the same source and draft while making the response contract
+        compact and explicit.  This method is deliberately not part of the
+        checkpoint run-key inputs: existing map/verify checkpoints must remain
+        reusable after a service restart or code update.
+        """
+        draft = json.dumps(note, ensure_ascii=False, separators=(",", ":"))
+        return f"""你是第 {segment_number} 段會議紀錄的精簡核對器。只根據原文核對草稿，不能補猜。
+只輸出一個完整、合法、精簡的 JSON；不要解釋、不要引用原文、不要輸出 evidence/speaker/time，不要使用 emoji。
+JSON 必須使用雙引號、不可有尾逗號、不可使用 Markdown code fence 或其他文字。
+只保留會影響決策或後續工作的資訊：數字、日期時間、人名、負責人、期限、決議、待辦、風險、未解問題。
+若草稿正確就原樣保留；沒有新增或修正時，陣列保持空白。gist 最多 60 字，key_points 最多 5 項且每項最多 80 字，actions/decisions 最多 4 項。
+格式：{{"gist":"","topic_candidates":[],"named_entities":[],"key_points":[],"decisions":[],"actions":[],"open_questions":[],"risks":[],"meeting_time_mentions":[]}}
+其中 decisions 項目為 {{"decision":"","context":""}}，actions 項目為 {{"item":"","owner":"","due_date":""}}，meeting_time_mentions 項目為 {{"value":""}}。
+
+原始逐字稿：
+{transcript_segment}
+
+待核對草稿：
+{draft}"""
+
+    def _verify_with_retry(
+        self,
+        segment_number: int,
+        segment_count: int,
+        transcript_segment: str,
+        note: dict,
+        meeting_id: str,
+        verify_tokens: int,
+        *,
+        progress: Callable[[str], None] | None = None,
+        model_event: Callable[[dict], None] | None = None,
+    ) -> tuple[dict | None, bool]:
+        """Verify a compact note without letting one truncated response abort a run.
+
+        Returns ``(result, True)`` when a verifier response was accepted.  If the
+        initial and compact retry responses both hit the output limit, returns
+        ``(None, False)`` so the caller can keep the already-complete map note.
+        The retry is capped by the existing verifier setting's supported maximum
+        and by the current context budget.
+        """
+        verify_prompt = self._verify_prompt(segment_number, transcript_segment, note)
+        stage = f"重要段落核對 {segment_number}/{segment_count}"
+        try:
+            return (
+                self._request_json_observed(
+                    verify_prompt,
+                    meeting_id,
+                    stage,
+                    verify_tokens,
+                    model_event=model_event,
+                ),
+                True,
+            )
+        except (OutputTokenLimitError, MalformedModelJSONError) as initial_error:
+            retry_prompt = self._verify_retry_prompt(segment_number, transcript_segment, note)
+            retry_stage = f"重要段落核對 {segment_number}/{segment_count}（精簡重試）"
+            max_retry_tokens = self.TOKEN_SETTING_SPECS["verify_max_tokens"]["max"]
+            retry_tokens = min(max_retry_tokens, max(verify_tokens + 256, verify_tokens * 2))
+            available_tokens = self.context_tokens - self.CONTEXT_MARGIN_TOKENS - self._token_count(retry_prompt)
+            retry_tokens = min(retry_tokens, max(0, available_tokens))
+
+            self.logger.emit(
+                "LLM",
+                f"{stage} 輸出達上限，改用精簡核對格式重試 "
+                f"retry_output_limit_tokens={retry_tokens} initial_error={initial_error}",
+                meeting_id=meeting_id,
+                level="WARNING",
+            )
+            if retry_tokens <= verify_tokens:
+                self.logger.emit(
+                    "LLM",
+                    f"{stage} 沒有足夠的重試 context，保留分段整理結果",
+                    meeting_id=meeting_id,
+                    level="WARNING",
+                )
+                return None, False
+
+            if progress:
+                progress(f"重要資訊核對 {segment_number} 輸出達上限，使用精簡格式重試")
+            try:
+                return (
+                    self._request_json_observed(
+                        retry_prompt,
+                        meeting_id,
+                        retry_stage,
+                        retry_tokens,
+                        model_event=model_event,
+                    ),
+                    True,
+                )
+            except (OutputTokenLimitError, MalformedModelJSONError) as retry_error:
+                self.logger.emit(
+                    "LLM",
+                    f"{retry_stage} 仍達 token 上限，保留分段整理結果 "
+                    f"retry_error={retry_error}",
+                    meeting_id=meeting_id,
+                    level="WARNING",
+                )
+                if progress:
+                    progress(f"重要資訊核對 {segment_number} 重試仍超出上限，保留分段整理結果")
+                return None, False
+
+    @classmethod
     def _final_ledger_prompt(cls, notes: list[dict], related_context: list[dict] | None) -> str:
         related = json.dumps(related_context or [], ensure_ascii=False)
         ledger = json.dumps(notes, ensure_ascii=False)
@@ -503,8 +670,11 @@ decisions 只列明確作成的決定，actions 只列明確要求執行的待�
         output_parts: list[str] = []
         finish_reason = None
         try:
+            system_content = "你只輸出合法 JSON；不要使用 emoji。"
+            if stage.startswith("重要段落核對"):
+                system_content += "核對結果只能使用繁體中文、數字與必要標點，不得輸出 emoji、Markdown、解釋文字或尾逗號。"
             response = self._load().create_chat_completion(
-                messages=[{"role": "system", "content": "你只輸出合法 JSON。"}, {"role": "user", "content": prompt}],
+                messages=[{"role": "system", "content": system_content}, {"role": "user", "content": prompt}],
                 temperature=0.1,
                 max_tokens=max_tokens,
                 response_format={"type": "json_object"},
@@ -517,7 +687,7 @@ decisions 只列明確作成的決定，actions 只列明確要求執行的待�
                 message = choice.get("message", {}) or {}
                 content = message.get("content") or choice.get("text") or ""
                 if content:
-                    content = str(content)
+                    content = self._strip_emoji(str(content))
                     output_parts.append(content)
                     notify({"type": "token", "text": content})
                 finish_reason = choice.get("finish_reason")
@@ -528,13 +698,13 @@ decisions 只列明確作成的決定，actions 只列明確要求執行的待�
                     delta = choice.get("delta", {}) or {}
                     content = delta.get("content") or choice.get("text") or ""
                     if content:
-                        content = str(content)
+                        content = self._strip_emoji(str(content))
                         output_parts.append(content)
                         notify({"type": "token", "text": content})
                     if choice.get("finish_reason"):
                         finish_reason = choice["finish_reason"]
 
-            content = "".join(output_parts)
+            content = self._strip_emoji("".join(output_parts))
             if finish_reason == "length":
                 raise OutputTokenLimitError(
                     f"{stage} 輸出達到 token 上限，為避免保存不完整內容已中止；"
@@ -543,7 +713,9 @@ decisions 只列明確作成的決定，actions 只列明確要求執行的待�
             try:
                 result = self._parse_object(content)
             except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-                raise RuntimeError(f"{stage} 沒有產生完整有效的 JSON；為避免遺漏，本次摘要未保存。") from exc
+                raise MalformedModelJSONError(
+                    f"{stage} 沒有產生完整有效的 JSON；為避免遺漏，本次摘要未保存。"
+                ) from exc
         except OutputTokenLimitError as exc:
             elapsed = round(time.monotonic() - started_monotonic, 3)
             notify({
@@ -677,8 +849,8 @@ decisions 只列明確作成的決定，actions 只列明確要求執行的待�
             chunks.append("\n".join(current))
         return chunks
 
-    @staticmethod
-    def _compact_strings(values, *, limit: int, max_chars: int) -> list[str]:
+    @classmethod
+    def _compact_strings(cls, values, *, limit: int, max_chars: int) -> list[str]:
         if not isinstance(values, list):
             return []
         result: list[str] = []
@@ -697,7 +869,7 @@ decisions 只列明確作成的決定，actions 只列明確要求執行的待�
                 )
             else:
                 text = value
-            text = convert_traditional(str(text)).strip()
+            text = cls._strip_emoji(convert_traditional(str(text))).strip()
             if not text or text in seen:
                 continue
             seen.add(text)
@@ -725,7 +897,7 @@ decisions 只列明確作成的決定，actions 只列明確要求執行的待�
         if not segments:
             segments = [1]
 
-        gist = convert_traditional(str(value.get("gist", ""))).strip()[:240]
+        gist = cls._strip_emoji(convert_traditional(str(value.get("gist", "")))).strip()[:240]
         raw_key_points = value.get("key_points")
         if not isinstance(raw_key_points, list) or not raw_key_points:
             # Accept the old map schema during local migrations/tests, but do
@@ -749,10 +921,10 @@ decisions 只列明確作成的決定，actions 只列明確要求執行的待�
         if isinstance(raw_decisions, list):
             for item in raw_decisions[:8]:
                 if isinstance(item, dict):
-                    decision = convert_traditional(str(item.get("decision", ""))).strip()
-                    context = convert_traditional(str(item.get("context", ""))).strip()
+                    decision = cls._strip_emoji(convert_traditional(str(item.get("decision", "")))).strip()
+                    context = cls._strip_emoji(convert_traditional(str(item.get("context", "")))).strip()
                 else:
-                    decision = convert_traditional(str(item)).strip()
+                    decision = cls._strip_emoji(convert_traditional(str(item))).strip()
                     context = ""
                 if not decision:
                     continue
@@ -766,11 +938,11 @@ decisions 只列明確作成的決定，actions 只列明確要求執行的待�
         if isinstance(raw_actions, list):
             for item in raw_actions[:8]:
                 if isinstance(item, dict):
-                    action = convert_traditional(str(item.get("item", ""))).strip()
-                    owner = convert_traditional(str(item.get("owner", ""))).strip()
-                    due_date = convert_traditional(str(item.get("due_date", ""))).strip()
+                    action = cls._strip_emoji(convert_traditional(str(item.get("item", "")))).strip()
+                    owner = cls._strip_emoji(convert_traditional(str(item.get("owner", "")))).strip()
+                    due_date = cls._strip_emoji(convert_traditional(str(item.get("due_date", "")))).strip()
                 else:
-                    action = convert_traditional(str(item)).strip()
+                    action = cls._strip_emoji(convert_traditional(str(item))).strip()
                     owner = due_date = ""
                 if not action:
                     continue
@@ -788,9 +960,9 @@ decisions 只列明確作成的決定，actions 只列明確要求執行的待�
         if isinstance(raw_time_mentions, list):
             for item in raw_time_mentions[:4]:
                 if isinstance(item, dict):
-                    text = convert_traditional(str(item.get("value", ""))).strip()
+                    text = cls._strip_emoji(convert_traditional(str(item.get("value", "")))).strip()
                 else:
-                    text = convert_traditional(str(item)).strip()
+                    text = cls._strip_emoji(convert_traditional(str(item))).strip()
                 if not text:
                     continue
                 cleaned = {"value": text[:120]}
@@ -1155,13 +1327,18 @@ decisions 只列明確作成的決定，actions 只列明確要求執行的待�
         notes = []
         resumed_segments = 0
         verified_segments = 0
+        verification_fallback_segments = 0
         for segment_number, segment in enumerate(transcript_segments, start=1):
             prompt = self._map_prompt(segment_number, len(transcript_segments), segment)
             cached = self._load_checkpoint(
                 meeting_id, run_key, "map", 0, f"{segment_number:06d}", prompt
             )
             if cached is not None:
-                note = self._clean_note(cached, [segment_number])
+                # Keep the same source-segment annotations that were present
+                # when the verify checkpoint was created.  Dropping them here
+                # changes the verify prompt hash and needlessly reruns old
+                # verification calls after a restart.
+                note = self._clean_note(cached, [segment_number], annotate_items=True)
                 resumed_segments += 1
                 if progress:
                     progress(f"恢復已完成分段 {segment_number}/{len(transcript_segments)}")
@@ -1186,29 +1363,61 @@ decisions 只列明確作成的決定，actions 只列明確要求執行的待�
                     meeting_id, run_key, "verify", 0, f"{segment_number:06d}", verify_prompt
                 )
                 if verified is not None:
-                    note = self._merge_verified_note(note, verified, [segment_number])
-                    if progress:
-                        progress(f"恢復重要段落核對 {segment_number}/{len(transcript_segments)}")
+                    if verified.get("_verification_fallback"):
+                        note = self._clean_note(verified, [segment_number])
+                        verification_fallback_segments += 1
+                        if progress:
+                            progress(
+                                f"恢復重要段落核對 {segment_number}/{len(transcript_segments)}"
+                                "（保留分段整理結果）"
+                            )
+                    else:
+                        note = self._merge_verified_note(note, verified, [segment_number])
+                        if progress:
+                            progress(f"恢復重要段落核對 {segment_number}/{len(transcript_segments)}")
                 else:
                     if progress:
                         progress(f"核對重要資訊 {segment_number}/{len(transcript_segments)}")
-                    verified_result = self._request_json_observed(
-                        verify_prompt,
+                    verified_result, verification_completed = self._verify_with_retry(
+                        segment_number,
+                        len(transcript_segments),
+                        segment,
+                        note,
                         meeting_id,
-                        f"重要段落核對 {segment_number}/{len(transcript_segments)}",
                         verify_tokens,
+                        progress=progress,
                         model_event=model_event,
                     )
-                    note = self._merge_verified_note(note, verified_result, [segment_number])
-                    self._save_checkpoint(
-                        meeting_id,
-                        run_key,
-                        "verify",
-                        0,
-                        f"{segment_number:06d}",
-                        verify_prompt,
-                        note,
-                    )
+                    if verification_completed:
+                        note = self._merge_verified_note(note, verified_result or {}, [segment_number])
+                    else:
+                        verification_fallback_segments += 1
+                        fallback_note = dict(note)
+                        fallback_note["_verification_fallback"] = True
+                        self._save_checkpoint(
+                            meeting_id,
+                            run_key,
+                            "verify",
+                            0,
+                            f"{segment_number:06d}",
+                            verify_prompt,
+                            fallback_note,
+                        )
+                        if progress:
+                            progress(
+                                f"重要資訊核對 {segment_number}/{len(transcript_segments)}"
+                                "無法完成，保留分段整理結果繼續"
+                            )
+                    if verification_completed:
+                        self._save_checkpoint(
+                            meeting_id,
+                            run_key,
+                            "verify",
+                            0,
+                            f"{segment_number:06d}",
+                            verify_prompt,
+                            note,
+                        )
                 verified_segments += 1
             notes.append(note)
 
@@ -1223,6 +1432,13 @@ decisions 只列明確作成的決定，actions 只列明確要求執行的待�
                 "LLM",
                 f"compact map verification completed segments={verified_segments}/{len(transcript_segments)}",
                 meeting_id=meeting_id,
+            )
+        if verification_fallback_segments:
+            self.logger.emit(
+                "LLM",
+                f"map verification fallback segments={verification_fallback_segments}/{len(transcript_segments)}",
+                meeting_id=meeting_id,
+                level="WARNING",
             )
 
         notes, final_prompt = self._reduce_to_final_budget(
