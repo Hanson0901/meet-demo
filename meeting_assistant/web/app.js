@@ -5,8 +5,9 @@ const analysisPolls = new Map();
 const speakerPolls = new Map();
 const activeJobStatuses = new Set(['queued', 'running', 'reloading']);
 const currentMeetingStorageKey = 'meeting-assistant.current-meeting-id';
-const uploadChunkSize = 16 * 1024 * 1024;
+const uploadChunkSize = 4 * 1024 * 1024;
 const largeUploadThreshold = uploadChunkSize;
+const retryableUploadStatuses = new Set([408, 425, 429, 500, 502, 503, 504]);
 const wait = (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 
 const api = async (url, options) => {
@@ -31,6 +32,8 @@ const api = async (url, options) => {
     let message = data?.error;
     if (response.status === 413) {
       message = '音訊檔案過大，反向代理拒絕了這次上傳（HTTP 413）。系統會對大檔自動分段；若仍失敗，請確認 Nginx 已套用 client_max_body_size。';
+    } else if (response.status === 408) {
+      message = '上傳分段逾時（HTTP 408）。請確認網路穩定後重試；系統已將大檔分成較小區段。';
     } else if (!message && invalidJson) {
       const status = response.status ? `HTTP ${response.status}` : '伺服器';
       message = `${status} 回應不是有效 JSON，可能是服務未啟動或反向代理錯誤。`;
@@ -90,19 +93,31 @@ async function uploadInChunks(file, startedAt) {
     const start = index * uploadChunkSize;
     const end = Math.min(file.size, start + uploadChunkSize);
     $('#upload-status').textContent = `正在分段上傳音訊… ${index + 1}/${chunkCount}（${Math.round((end / file.size) * 100)}%）`;
-    result = await api('/api/transcribe', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/octet-stream',
-        'X-Upload-Id': uploadId,
-        'X-Upload-Chunk-Index': String(index),
-        'X-Upload-Chunk-Count': String(chunkCount),
-        'X-Upload-File-Size': String(file.size),
-        'X-Upload-Filename': encodeURIComponent(file.name),
-        'X-Upload-Started-At': startedAt,
-      },
-      body: file.slice(start, end),
-    });
+    let attempt = 0;
+    while (true) {
+      try {
+        result = await api('/api/transcribe', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            'X-Upload-Id': uploadId,
+            'X-Upload-Chunk-Index': String(index),
+            'X-Upload-Chunk-Count': String(chunkCount),
+            'X-Upload-File-Size': String(file.size),
+            'X-Upload-Filename': encodeURIComponent(file.name),
+            'X-Upload-Started-At': startedAt,
+          },
+          body: file.slice(start, end),
+        });
+        break;
+      } catch (error) {
+        const retryable = !error.status || retryableUploadStatuses.has(error.status);
+        if (!retryable || attempt >= 3) throw error;
+        attempt += 1;
+        $('#upload-status').textContent = `第 ${index + 1}/${chunkCount} 段連線中斷，${attempt} 秒後重試…`;
+        await wait(attempt * 1000);
+      }
+    }
   }
   return result;
 }
@@ -190,17 +205,15 @@ async function loadProcessJob(meetingId) {
   }));
   const available = results.filter(Boolean);
   const active = available.find(({ job }) => ['queued', 'running', 'reloading'].includes(job.status));
-  const withSteps = available.find(({ job }) => job.status !== 'idle' && ((job.steps || []).length || job.model_output));
-  const selected = active || withSteps || available.find(({ job }) => job.status !== 'idle') || available[0];
-  if (selected) {
-    renderProcessJob(selected.job, selected.type);
-    if (activeJobStatuses.has(selected.job.status)) {
-      if (selected.type === 'analysis') void watchAnalysis(meetingId);
-      if (selected.type === 'speaker') void watchSpeakerSuggestions(meetingId);
-      if (selected.type === 'transcription') void watchTranscription(meetingId);
-    }
+  if (!active) {
+    $('#process-panel').hidden = true;
+    return null;
   }
-  return selected?.job || null;
+  renderProcessJob(active.job, active.type);
+  if (active.type === 'analysis') void watchAnalysis(meetingId);
+  if (active.type === 'speaker') void watchSpeakerSuggestions(meetingId);
+  if (active.type === 'transcription') void watchTranscription(meetingId);
+  return active.job;
 }
 
 async function loadMeetings() {
