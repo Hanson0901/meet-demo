@@ -5,12 +5,18 @@ const analysisPolls = new Map();
 const speakerPolls = new Map();
 const activeJobStatuses = new Set(['queued', 'running', 'reloading']);
 const currentMeetingStorageKey = 'meeting-assistant.current-meeting-id';
-const largeUploadThreshold = 80 * 1024 * 1024;
 const uploadChunkSize = 16 * 1024 * 1024;
+const largeUploadThreshold = uploadChunkSize;
 const wait = (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 
 const api = async (url, options) => {
-  const response = await fetch(url, options);
+  let response;
+  try {
+    response = await fetch(url, options);
+  } catch (error) {
+    const message = error?.message || '網路連線失敗';
+    throw new Error(`無法連線至後端服務：${message}。請確認服務正在執行。`);
+  }
   const raw = await response.text();
   let data = null;
   let invalidJson = false;

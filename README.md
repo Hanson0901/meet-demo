@@ -178,7 +178,7 @@ test -r "$LLAMA_CPP_MODEL"
 
 ### 大型音檔上傳
 
-網頁對超過 80 MiB 的音檔會自動使用 16 MiB 分段上傳，後端收到最後一段後才組合成完整音檔並開始 ASR。這可避免 Cloudflare 或其他反向代理對單一請求的大小限制；分段暫存位於 `data/uploads/.chunks/`，完成後會自動清除。若仍收到 HTTP 413，請重新載入最新的網頁 JavaScript，並確認 Nginx 已套用專案的 `client_max_body_size 2g` 設定。
+網頁對超過 16 MiB 的音檔會直接使用 16 MiB 分段上傳，後端收到最後一段後才組合成完整音檔並開始 ASR。這可避免 Cloudflare 或其他反向代理對單一請求的大小限制；分段暫存位於 `data/uploads/.chunks/`，完成後會自動清除。若仍收到 HTTP 413，請重新載入最新的網頁 JavaScript，並確認 Nginx 已套用專案的 `client_max_body_size 2g` 設定。
 
 ## 5. 所有環境變數
 

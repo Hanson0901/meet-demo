@@ -36,7 +36,7 @@ flowchart TD
 
 ## 會議建立與語音辨識
 
-1. 使用者選擇音訊檔並按「開始整理」。瀏覽器記錄當下時間為 ISO `started_at`；小型音檔以 multipart 表單送到 `POST /api/transcribe`，超過 80 MiB 時改用 16 MiB 原始分段送到同一端點。
+1. 使用者選擇音訊檔並按「開始整理」。瀏覽器記錄當下時間為 ISO `started_at`；小型音檔以 multipart 表單送到 `POST /api/transcribe`，超過 16 MiB 時改用 16 MiB 原始分段送到同一端點。
 2. 後端將音訊存至 `data/uploads/`；分段上傳先保存於 `data/uploads/.chunks/{upload_id}/`，最後一段到達且檢查總大小一致後才組合完整音檔並建立 UUID 會議記錄。初始標題為「整理中 · YYYY-MM-DD HH:mm」；`created_at` 與 `meeting_time` 先使用這次開始時間。HTTP 請求在音檔寫入並排入背景工作後立即回應，不等待模型載入。
 3. `AudioIngest` 將音訊切成片段，FunASR adapter 在背景辨識逐字稿與說話人；辨識文字及繁體化文字一起保存至 SQLite。網頁輪詢 `/api/meetings/{id}/transcription-status` 顯示模型載入、辨識進度與錯誤，辨識完成前不能啟動姓名推測或摘要。
 4. 網頁顯示逐字稿與說話人。使用者可編輯姓名，按「確認人名」呼叫 `PUT /api/meetings/{meeting_id}/speakers`；逐字稿顯示時會以確認後的姓名取代 speaker ID。
