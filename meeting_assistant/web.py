@@ -2,6 +2,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import time
 import uuid
 from datetime import datetime, timezone
@@ -10,12 +11,27 @@ from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Lock, Thread
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 from .evaluation import EvaluationConfigurationError, EvaluationResponseFormatError
 from .tools import MeetingTools
 
 WEB_ROOT = Path(__file__).parent / "web"
 UPLOAD_ROOT = Path("data/uploads")
+UPLOAD_CHUNK_ROOT = UPLOAD_ROOT / ".chunks"
+UPLOAD_CHUNK_MAX_BYTES = 32 * 1024 * 1024
+MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024
+
+
+class PayloadTooLargeError(ValueError):
+    """Raised when an upload exceeds the limit accepted by the application."""
+
+
+class IncompleteUploadError(ValueError):
+    """Raised when the final chunk arrives before all earlier chunks."""
+
+    def __init__(self, missing_chunks: list[int]):
+        self.missing_chunks = missing_chunks
+        super().__init__(f"分段上傳尚未完成，缺少區段：{', '.join(map(str, missing_chunks[:20]))}")
 
 def save_upload(body: bytes, content_type: str, upload_root: Path = UPLOAD_ROOT) -> tuple[str, str | None, str | None]:
     if not content_type or not content_type.lower().startswith("multipart/form-data"):
@@ -69,6 +85,7 @@ def serve(tools: MeetingTools, host: str = "0.0.0.0", port: int = 8080):
     speaker_suggestion_jobs: dict[str, dict] = {}
     analysis_jobs_lock = Lock()
     transcription_run_lock = Lock()
+    upload_chunks_lock = Lock()
 
     terminal_job_statuses = {"completed", "failed", "canceled"}
 
@@ -549,17 +566,126 @@ def serve(tools: MeetingTools, host: str = "0.0.0.0", port: int = 8080):
         def send_json(self, value, status: int = 200):
             self.send_bytes(json.dumps(value, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8", status)
 
-        def read_body(self) -> bytes:
+        def read_body(self, maximum: int | None = None) -> bytes:
             try:
                 length = int(self.headers.get("Content-Length", "0"))
             except ValueError as exc:
                 raise ValueError("Content-Length 不是有效數字") from exc
             if length < 0:
                 raise ValueError("Content-Length 不能是負數")
+            if maximum is not None and length > maximum:
+                raise PayloadTooLargeError(
+                    f"請求內容過大（{length} bytes），單一分段最多 {maximum} bytes"
+                )
             body = self.rfile.read(length)
             if len(body) != length:
                 raise ValueError("請求內容不完整，請重新上傳")
             return body
+
+        def save_chunk_upload(self) -> tuple[dict | None, tuple[str, str, str | None] | None]:
+            """Save one raw upload chunk and assemble the file on the final chunk.
+
+            Large browser uploads use this path so every request stays below
+            common reverse proxy request-size limits.
+            """
+            upload_id = self.headers.get("X-Upload-Id", "").strip()
+            if not re.fullmatch(r"[A-Za-z0-9_-]{16,128}", upload_id):
+                raise ValueError("X-Upload-Id 格式無效")
+
+            def header_int(name: str, label: str, minimum: int = 0) -> int:
+                raw = self.headers.get(name, "")
+                try:
+                    value = int(raw)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(f"{label} 不是有效整數") from exc
+                if value < minimum:
+                    raise ValueError(f"{label} 必須大於或等於 {minimum}")
+                return value
+
+            chunk_index = header_int("X-Upload-Chunk-Index", "分段編號")
+            chunk_count = header_int("X-Upload-Chunk-Count", "分段總數", 1)
+            file_size = header_int("X-Upload-File-Size", "音檔大小", 1)
+            if file_size > MAX_UPLOAD_BYTES:
+                raise PayloadTooLargeError(
+                    f"音檔大小超過系統上限 {MAX_UPLOAD_BYTES // (1024 * 1024)} MiB"
+                )
+            if chunk_index >= chunk_count:
+                raise ValueError("分段編號超出分段總數")
+
+            encoded_name = self.headers.get("X-Upload-Filename", "audio.bin")
+            name = Path(unquote(encoded_name)).name or "audio.bin"
+            safe_name = re.sub(r"[^\w.\-]", "_", name)
+            started_at = self.headers.get("X-Upload-Started-At") or None
+            chunk_dir = UPLOAD_CHUNK_ROOT / upload_id
+            metadata_path = chunk_dir / "metadata.json"
+            body = self.read_body(maximum=UPLOAD_CHUNK_MAX_BYTES)
+            if not body:
+                raise ValueError("上傳的音訊分段是空的")
+
+            with upload_chunks_lock:
+                chunk_dir.mkdir(parents=True, exist_ok=True)
+                metadata = {
+                    "filename": safe_name,
+                    "file_size": file_size,
+                    "chunk_count": chunk_count,
+                    "started_at": started_at,
+                }
+                if metadata_path.exists():
+                    try:
+                        stored = json.loads(metadata_path.read_text(encoding="utf-8"))
+                    except (OSError, json.JSONDecodeError) as exc:
+                        raise ValueError("分段上傳狀態已損壞，請重新上傳") from exc
+                    if any(stored.get(key) != value for key, value in metadata.items()):
+                        raise ValueError("分段上傳的檔案資訊不一致，請重新上傳")
+                else:
+                    temporary_metadata = chunk_dir / ".metadata.tmp"
+                    temporary_metadata.write_text(
+                        json.dumps(metadata, ensure_ascii=False), encoding="utf-8"
+                    )
+                    os.replace(temporary_metadata, metadata_path)
+
+                part_path = chunk_dir / f"part-{chunk_index:08d}"
+                temporary_part = chunk_dir / f".part-{chunk_index:08d}.tmp"
+                temporary_part.write_bytes(body)
+                os.replace(temporary_part, part_path)
+
+                if chunk_index < chunk_count - 1:
+                    return {
+                        "upload_id": upload_id,
+                        "chunk_index": chunk_index,
+                        "chunk_count": chunk_count,
+                        "received_bytes": len(body),
+                        "complete": False,
+                    }, None
+
+                missing = [
+                    index for index in range(chunk_count)
+                    if not (chunk_dir / f"part-{index:08d}").is_file()
+                ]
+                if missing:
+                    raise IncompleteUploadError(missing)
+
+                target = UPLOAD_ROOT / f"{uuid.uuid4().hex}_{safe_name}"
+                total_written = 0
+                try:
+                    with target.open("wb") as output:
+                        for index in range(chunk_count):
+                            part_path = chunk_dir / f"part-{index:08d}"
+                            with part_path.open("rb") as part:
+                                shutil.copyfileobj(part, output, length=1024 * 1024)
+                            total_written += part_path.stat().st_size
+                    if total_written != file_size:
+                        target.unlink(missing_ok=True)
+                        raise ValueError(
+                            f"組合後音檔大小不符（收到 {total_written} bytes，預期 {file_size} bytes）"
+                        )
+                except Exception:
+                    target.unlink(missing_ok=True)
+                    raise
+                finally:
+                    shutil.rmtree(chunk_dir, ignore_errors=True)
+
+            return None, (str(target), Path(name).stem, started_at)
 
         def do_GET(self):
             parsed = urlparse(self.path)
@@ -709,23 +835,38 @@ def serve(tools: MeetingTools, host: str = "0.0.0.0", port: int = 8080):
                 if not self.authorized(): return self.send_json({"error": "需要管理員 token"}, 401)
                 count = tools.purge_database()
                 for upload in UPLOAD_ROOT.iterdir():
-                    if upload.is_file(): upload.unlink()
+                    if upload.is_dir(): shutil.rmtree(upload, ignore_errors=True)
+                    elif upload.is_file(): upload.unlink()
                 return self.send_json({"deleted_meetings": count})
             if self.path not in ("/api/transcribe", "/transcribe"): return self.send_json({"error": "not found"}, 404)
             try:
-                body = self.read_body()
                 content_type = self.headers.get("Content-Type", "")
-                if content_type.lower().startswith("multipart/form-data"):
-                    audio_path, title, started_at = save_upload(body, content_type)
+                if self.headers.get("X-Upload-Id"):
+                    chunk_response, assembled = self.save_chunk_upload()
+                    if chunk_response is not None:
+                        return self.send_json(chunk_response, 202)
+                    audio_path, title, started_at = assembled
                 else:
-                    payload = read_json_body(body)
-                    audio_path = payload.get("audio")
-                    if not audio_path:
-                        raise ValueError("JSON 缺少 audio 音檔路徑")
-                    title, started_at = payload.get("title"), payload.get("started_at")
+                    body = self.read_body()
+                    if content_type.lower().startswith("multipart/form-data"):
+                        audio_path, title, started_at = save_upload(body, content_type)
+                    else:
+                        payload = read_json_body(body)
+                        audio_path = payload.get("audio")
+                        if not audio_path:
+                            raise ValueError("JSON 缺少 audio 音檔路徑")
+                        title, started_at = payload.get("title"), payload.get("started_at")
                 meeting_id = tools.prepare_meeting(title, started_at)
                 payload, status = start_transcription(meeting_id, audio_path)
                 return self.send_json(payload, status)
+            except PayloadTooLargeError as exc:
+                return self.send_json({"error": str(exc), "code": "payload_too_large"}, 413)
+            except IncompleteUploadError as exc:
+                return self.send_json({
+                    "error": str(exc),
+                    "code": "incomplete_upload",
+                    "missing_chunks": exc.missing_chunks,
+                }, 409)
             except ValueError as exc: return self.send_json({"error": str(exc)}, 400)
             except Exception as exc:
                 tools.logger.emit("UI", f"request failed: {exc}", level="ERROR"); return self.send_json({"error": "處理失敗，請查看 log"}, 500)

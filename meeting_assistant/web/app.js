@@ -5,21 +5,38 @@ const analysisPolls = new Map();
 const speakerPolls = new Map();
 const activeJobStatuses = new Set(['queued', 'running', 'reloading']);
 const currentMeetingStorageKey = 'meeting-assistant.current-meeting-id';
+const largeUploadThreshold = 80 * 1024 * 1024;
+const uploadChunkSize = 16 * 1024 * 1024;
 const wait = (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 
 const api = async (url, options) => {
   const response = await fetch(url, options);
   const raw = await response.text();
   let data = null;
+  let invalidJson = false;
   if (raw.trim()) {
     try {
       data = JSON.parse(raw);
     } catch (_error) {
-      const status = response.status ? `HTTP ${response.status}` : '伺服器';
-      throw new Error(`${status} 回應不是有效 JSON，可能是服務未啟動或反向代理錯誤。`);
+      invalidJson = true;
     }
   }
-  if (!response.ok) throw new Error(data?.error || `請求失敗（HTTP ${response.status}）`);
+  if (!response.ok) {
+    let message = data?.error;
+    if (response.status === 413) {
+      message = '音訊檔案過大，反向代理拒絕了這次上傳（HTTP 413）。系統會對大檔自動分段；若仍失敗，請確認 Nginx 已套用 client_max_body_size。';
+    } else if (!message && invalidJson) {
+      const status = response.status ? `HTTP ${response.status}` : '伺服器';
+      message = `${status} 回應不是有效 JSON，可能是服務未啟動或反向代理錯誤。`;
+    }
+    const error = new Error(message || `請求失敗（HTTP ${response.status}）`);
+    error.status = response.status;
+    throw error;
+  }
+  if (invalidJson) {
+    const status = response.status ? `HTTP ${response.status}` : '伺服器';
+    throw new Error(`${status} 回應不是有效 JSON，可能是服務未啟動或反向代理錯誤。`);
+  }
   if (data === null) throw new Error('伺服器回應是空的，請確認服務是否仍在執行。');
   return data;
 };
@@ -51,6 +68,52 @@ const processStatusLabels = {
   idle: '尚未開始', queued: '排隊中', running: '執行中', reloading: '套用設定中',
   completed: '已完成', failed: '失敗', canceled: '已中止',
 };
+
+function createUploadId() {
+  if (window.crypto?.randomUUID) return window.crypto.randomUUID().replaceAll('-', '');
+  const bytes = new Uint8Array(16);
+  window.crypto?.getRandomValues?.(bytes);
+  return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('') || `${Date.now()}${Math.random().toString(16).slice(2)}`;
+}
+
+async function uploadInChunks(file, startedAt) {
+  const uploadId = createUploadId();
+  const chunkCount = Math.ceil(file.size / uploadChunkSize);
+  let result = null;
+  for (let index = 0; index < chunkCount; index += 1) {
+    const start = index * uploadChunkSize;
+    const end = Math.min(file.size, start + uploadChunkSize);
+    $('#upload-status').textContent = `正在分段上傳音訊… ${index + 1}/${chunkCount}（${Math.round((end / file.size) * 100)}%）`;
+    result = await api('/api/transcribe', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-Upload-Id': uploadId,
+        'X-Upload-Chunk-Index': String(index),
+        'X-Upload-Chunk-Count': String(chunkCount),
+        'X-Upload-File-Size': String(file.size),
+        'X-Upload-Filename': encodeURIComponent(file.name),
+        'X-Upload-Started-At': startedAt,
+      },
+      body: file.slice(start, end),
+    });
+  }
+  return result;
+}
+
+async function uploadAudio(form, file, startedAt) {
+  if (file.size > largeUploadThreshold) return uploadInChunks(file, startedAt);
+  try {
+    return await api('/api/transcribe', { method: 'POST', body: new FormData(form) });
+  } catch (error) {
+    // Retry through the chunk path if an older proxy rejects the direct body.
+    if (error.status === 413 && file.size > uploadChunkSize) {
+      $('#upload-status').textContent = '代理拒絕單一請求，改用分段上傳…';
+      return uploadInChunks(file, startedAt);
+    }
+    throw error;
+  }
+}
 
 function renderProcessLogs(logs) {
   const lines = (logs || []).map((log) => {
@@ -340,7 +403,7 @@ $('#upload-form').onsubmit = async (event) => {
   $('#upload-status').textContent = '正在上傳音訊…';
   try {
     $('#started-at').value = new Date().toISOString();
-    const result = await api('/api/transcribe', { method: 'POST', body: new FormData(event.currentTarget) });
+    const result = await uploadAudio(event.currentTarget, file, $('#started-at').value);
     $('#upload-status').textContent = '音訊已上傳，語音辨識已在背景開始…';
     await loadMeeting(result.meeting_id);
     watchTranscription(result.meeting_id);

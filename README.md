@@ -176,6 +176,10 @@ test -r "$LLAMA_CPP_MODEL"
 
 音訊以 16 kHz、單聲道、PCM WAV 最穩定。非 WAV 會保留原檔交給 FunASR；請確認目前 FunASR／torchaudio 能解碼該格式。每位說話者需要約 1.5 秒以上有效語音才會建立 CAM++ embedding。聲紋不會上傳，且只有使用者確認姓名後才會成為跨會議 profile。
 
+### 大型音檔上傳
+
+網頁對超過 80 MiB 的音檔會自動使用 16 MiB 分段上傳，後端收到最後一段後才組合成完整音檔並開始 ASR。這可避免 Cloudflare 或其他反向代理對單一請求的大小限制；分段暫存位於 `data/uploads/.chunks/`，完成後會自動清除。若仍收到 HTTP 413，請重新載入最新的網頁 JavaScript，並確認 Nginx 已套用專案的 `client_max_body_size 2g` 設定。
+
 ## 5. 所有環境變數
 
 程式不會自動載入一般 `.env` 或執行 `~/.bashrc`。手動執行使用 `export`；systemd 使用 `EnvironmentFile`。評估器在程序環境缺少遠端設定時，會讀取明確指定的 `MEETING_ENV_FILE`／`CGULLM_ENV_FILE`，預設為 `/home/cgu-csie/.config/meeting-assistant.env`，但只解析 `CGULLM_*` 設定，不會執行 shell 程式碼。目前 `.env.example` 是舊版 Flask 配置樣板，不是本專案的自動配置入口。
@@ -410,7 +414,7 @@ nohup env \
 ## 7. 網頁與摘要流程
 
 1. 上傳音檔後建立「整理中 · 日期時間」記錄，時間取瀏覽器的 `started_at`；沒有日期線索時以此作會議時間。
-2. FunASR 在背景辨識並保存原始文字、台灣繁體文字、時間戳與 speaker ID。
+2. 小型音檔以 multipart 上傳；大型音檔由瀏覽器分段送到同一個端點，後端組合完成後才建立辨識工作。FunASR 在背景辨識並保存原始文字、台灣繁體文字、時間戳與 speaker ID。
 3. 使用者可編輯姓名；按「確認姓名」才會同步逐字稿並建立／更新聲紋 profile。
 4. 按「產生摘要與追蹤」後才使用 llama.cpp。
 5. 短稿直接分析；長稿先按 tokenizer 與發言切段。
@@ -588,6 +592,15 @@ sudo systemctl reload nginx
 ```text
 /etc/letsencrypt/live/meet.hyang.icu/fullchain.pem
 /etc/letsencrypt/live/meet.hyang.icu/privkey.pem
+```
+
+設定檔也會將 Nginx 的 413 回應轉成 JSON，讓網頁顯示可理解的錯誤。若目前主機仍使用舊的 vhost，請重新複製設定並 reload：
+
+```bash
+sudo cp /home/cgu-csie/meet-demo/deploy/nginx-meeting-assistant.conf \
+  /etc/nginx/sites-available/meet-hyang-icu
+sudo nginx -t
+sudo systemctl reload nginx
 ```
 
 尚未有憑證且 DNS 已生效時：
